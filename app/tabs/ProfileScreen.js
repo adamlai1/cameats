@@ -3,9 +3,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
-import { collection, doc, getDoc, getDocs, orderBy, query, updateDoc, where } from 'firebase/firestore';
+import { arrayUnion, collection, doc, getDoc, getDocs, limit, orderBy, query, updateDoc, where } from 'firebase/firestore';
 import { getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
@@ -13,6 +13,7 @@ import {
     FlatList,
     Image,
     Modal,
+    RefreshControl,
     SafeAreaView,
     ScrollView,
     StyleSheet,
@@ -21,6 +22,7 @@ import {
     TouchableOpacity,
     View
 } from 'react-native';
+import { GestureHandlerRootView, PanGestureHandler } from 'react-native-gesture-handler';
 import { auth, db } from '../../firebase';
 
 const WINDOW_WIDTH = Dimensions.get('window').width;
@@ -39,9 +41,89 @@ export default function ProfileScreen() {
   const [showFriendsList, setShowFriendsList] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [viewMode, setViewMode] = useState('grid');
+  const [initialScrollIndex, setInitialScrollIndex] = useState(0);
+  const [showFriendRequests, setShowFriendRequests] = useState(false);
+  const [showAddFriend, setShowAddFriend] = useState(false);
+  const [searchUsername, setSearchUsername] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [searching, setSearching] = useState(false);
   const router = useRouter();
+  const flatListRef = useRef(null);
+  const swipeableRef = useRef(null);
 
   useEffect(() => {
+    const fetchProfile = async () => {
+      try {
+        const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
+        if (!userDoc.exists()) {
+          console.error('User profile not found');
+          return;
+        }
+
+        const userData = userDoc.data();
+        setUsername(userData.username);
+        setEmail(userData.email);
+        setDisplayName(userData.displayName || '');
+        setBio(userData.bio || '');
+        setProfilePicUrl(userData.profilePicUrl);
+
+        // Fetch friends' details
+        const friendPromises = (userData.friends || []).map(friendId =>
+          getDoc(doc(db, 'users', friendId))
+        );
+        const friendDocs = await Promise.all(friendPromises);
+        const friendsList = friendDocs
+          .filter(doc => doc.exists())
+          .map(doc => ({
+            id: doc.id,
+            username: doc.data().username,
+            displayName: doc.data().displayName,
+            profilePicUrl: doc.data().profilePicUrl
+          }));
+        setFriendsList(friendsList);
+
+        // Set friend requests
+        setFriendRequests(userData.friendRequests || []);
+
+        // Fetch both user's posts and posts where user is tagged
+        const [ownPostsSnapshot, taggedPostsSnapshot] = await Promise.all([
+          getDocs(query(
+            collection(db, 'posts'),
+            where('userId', '==', auth.currentUser.uid),
+            orderBy('createdAt', 'desc')
+          )),
+          getDocs(query(
+            collection(db, 'posts'),
+            where('taggedFriendIds', 'array-contains', auth.currentUser.uid),
+            orderBy('createdAt', 'desc')
+          ))
+        ]);
+
+        const ownPosts = ownPostsSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+          isOwnPost: true
+        }));
+        
+        const taggedPosts = taggedPostsSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+          isTagged: true
+        }));
+
+        const allPosts = [...ownPosts, ...taggedPosts].sort((a, b) => {
+          const dateA = a.createdAt?.toDate() || new Date(0);
+          const dateB = b.createdAt?.toDate() || new Date(0);
+          return dateB - dateA;
+        });
+
+        setPosts(allPosts);
+      } catch (error) {
+        console.error('Error fetching profile:', error);
+      }
+    };
+
     fetchProfile();
   }, []);
 
@@ -51,124 +133,73 @@ export default function ProfileScreen() {
     setRefreshing(false);
   };
 
-  const fetchProfile = async () => {
-    try {
-      const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
-      if (!userDoc.exists()) {
-        console.error('User profile not found');
-        return;
-      }
-
-      const userData = userDoc.data();
-      setUsername(userData.username);
-      setEmail(userData.email);
-      setDisplayName(userData.displayName || '');
-      setBio(userData.bio || '');
-      setProfilePicUrl(userData.profilePicUrl);
-
-      // Fetch friends' details
-      const friendPromises = (userData.friends || []).map(friendId =>
-        getDoc(doc(db, 'users', friendId))
-      );
-      const friendDocs = await Promise.all(friendPromises);
-      const friends = friendDocs
-        .filter(doc => doc.exists())
-        .map(doc => ({
-          username: doc.data().username,
-          uid: doc.id
-        }));
-      setFriendsList(friends);
-
-      // Fetch friend requests
-      const requestPromises = (userData.friendRequests || []).map(async (requestId) => {
-        const requestDoc = await getDoc(doc(db, 'users', requestId));
-        return {
-          username: requestDoc.data()?.username,
-          uid: requestId
-        };
-      });
-      const requests = await Promise.all(requestPromises);
-      setFriendRequests(requests.filter(r => r.username));
-
-      // Fetch both user's posts and posts where user is tagged
-      const [ownPostsSnapshot, taggedPostsSnapshot] = await Promise.all([
-        // Query for posts created by the user
-        getDocs(query(
-          collection(db, 'posts'),
-          where('userId', '==', auth.currentUser.uid),
-          orderBy('createdAt', 'desc')
-        )),
-        // Query for posts where user is tagged
-        getDocs(query(
-          collection(db, 'posts'),
-          where('taggedFriendIds', 'array-contains', auth.currentUser.uid),
-          orderBy('createdAt', 'desc')
-        ))
-      ]);
-
-      // Combine and sort all posts
-      const ownPosts = ownPostsSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        isOwnPost: true
-      }));
-      
-      const taggedPosts = taggedPostsSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        isTagged: true
-      }));
-
-      // Merge posts and sort by createdAt
-      const allPosts = [...ownPosts, ...taggedPosts].sort((a, b) => {
-        const dateA = a.createdAt?.toDate() || new Date(0);
-        const dateB = b.createdAt?.toDate() || new Date(0);
-        return dateB - dateA;
-      });
-
-      setPosts(allPosts);
-    } catch (error) {
-      console.error('Error fetching profile:', error);
+  const handleSearch = async (text) => {
+    setSearchUsername(text);
+    if (!text.trim()) {
+      setSearchResults([]);
+      return;
     }
-  };
 
-  const handleSendFriendRequest = async () => {
+    setSearching(true);
     try {
       const usersRef = collection(db, 'users');
-      const q = query(usersRef, where('username', '==', friendUsername));
+      const q = query(
+        usersRef,
+        where('username', '>=', text),
+        where('username', '<=', text + '\uf8ff'),
+        limit(10)
+      );
       const querySnapshot = await getDocs(q);
 
-      if (querySnapshot.empty) {
-        Alert.alert('User not found');
-        return;
-      }
+      // Get current user's friends list
+      const currentUserDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
+      const currentUserData = currentUserDoc.data();
+      const currentUserFriends = currentUserData.friends || [];
+      
+      const results = querySnapshot.docs
+        .map(doc => {
+          const userData = doc.data();
+          const isCurrentUser = doc.id === auth.currentUser.uid;
+          
+          // Check if this user's ID is in current user's friends array
+          const isFriend = currentUserFriends.includes(doc.id);
+          
+          const hasPendingRequest = friendRequests.some(request => request.id === doc.id);
+          
+          return {
+            id: doc.id,
+            ...userData,
+            isCurrentUser,
+            isFriend,
+            hasPendingRequest
+          };
+        })
+        .filter(user => !user.isCurrentUser);
+      
+      setSearchResults(results);
+    } catch (error) {
+      console.error('Search error:', error);
+      Alert.alert('Error', 'Failed to search for users');
+    }
+    setSearching(false);
+  };
 
-      const targetUser = querySnapshot.docs[0];
-      if (targetUser.id === auth.currentUser.uid) {
-        Alert.alert('Cannot send friend request to yourself');
-        return;
-      }
-
-      const targetUserData = targetUser.data();
-      if (targetUserData.friendRequests?.includes(auth.currentUser.uid)) {
-        Alert.alert('Friend request already sent');
-        return;
-      }
-
-      if (targetUserData.friends?.includes(auth.currentUser.uid)) {
-        Alert.alert('Already friends with this user');
-        return;
-      }
-
-      await updateDoc(doc(db, 'users', targetUser.id), {
-        friendRequests: [...(targetUserData.friendRequests || []), auth.currentUser.uid]
+  const handleSendFriendRequest = async (toUser) => {
+    try {
+      // Add to their friend requests
+      const userRef = doc(db, 'users', toUser.id);
+      await updateDoc(userRef, {
+        friendRequests: arrayUnion({
+          id: auth.currentUser.uid,
+          username: username
+        })
       });
 
-      Alert.alert('Friend request sent!');
-      setFriendUsername('');
+      Alert.alert('Success', 'Friend request sent!');
+      setSearchResults(searchResults.filter(user => user.id !== toUser.id));
     } catch (error) {
       console.error('Error sending friend request:', error);
-      Alert.alert('Error', error.message);
+      Alert.alert('Error', 'Failed to send friend request');
     }
   };
 
@@ -305,25 +336,85 @@ export default function ProfileScreen() {
     }
   };
 
-  const renderPost = ({ item }) => (
-    <TouchableOpacity style={styles.gridPost}>
-      <Image 
-        source={{ uri: item.imageUrl }} 
-        style={styles.gridImage}
-      />
+  const handlePostPress = (post) => {
+    const postIndex = posts.findIndex(p => p.id === post.id);
+    setInitialScrollIndex(postIndex);
+    setViewMode('detail');
+  };
+
+  const renderDetailPost = ({ item }) => (
+    <View style={styles.detailPost}>
+      <Image source={{ uri: item.imageUrl }} style={styles.detailImage} />
+      <View style={styles.detailContent}>
+        <View style={styles.detailHeader}>
+          <Text style={styles.detailUsername}>{item.username}</Text>
+          <Text style={styles.detailDate}>
+            {item.createdAt?.toDate().toLocaleDateString()}
+          </Text>
+        </View>
+        {item.caption && (
+          <Text style={styles.detailCaption}>{item.caption}</Text>
+        )}
+        {item.taggedFriends?.length > 0 && (
+          <Text style={styles.detailTags}>
+            With {item.taggedFriends.map(friend => friend.username).join(', ')}
+          </Text>
+        )}
+      </View>
+    </View>
+  );
+
+  const renderGridPost = ({ item }) => (
+    <TouchableOpacity 
+      style={styles.gridPost}
+      onPress={() => handlePostPress(item)}
+    >
+      <Image source={{ uri: item.imageUrl }} style={styles.gridImage} />
     </TouchableOpacity>
   );
 
   const Header = () => (
     <View style={styles.header}>
+      {viewMode === 'detail' && (
+        <TouchableOpacity 
+          style={styles.backButton}
+          onPress={() => {
+            setViewMode('grid');
+            setInitialScrollIndex(0);
+          }}
+        >
+          <Ionicons name="arrow-back" size={24} color="black" />
+          <Text style={styles.backButtonText}>Back to Grid</Text>
+        </TouchableOpacity>
+      )}
+      
       <View style={styles.headerTop}>
         <Text style={styles.username}>{username}</Text>
-        <TouchableOpacity 
-          style={styles.settingsButton}
-          onPress={() => setShowSettings(true)}
-        >
-          <Ionicons name="settings-outline" size={24} color="black" />
-        </TouchableOpacity>
+        <View style={styles.headerButtons}>
+          <TouchableOpacity 
+            style={styles.addFriendButton}
+            onPress={() => setShowAddFriend(true)}
+          >
+            <Ionicons name="person-add-outline" size={24} color="#0095f6" />
+          </TouchableOpacity>
+          {friendRequests.length > 0 && (
+            <TouchableOpacity 
+              style={styles.requestButton}
+              onPress={() => setShowFriendRequests(true)}
+            >
+              <Ionicons name="person-add" size={24} color="#0095f6" />
+              <View style={styles.requestBadge}>
+                <Text style={styles.requestCount}>{friendRequests.length}</Text>
+              </View>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity 
+            style={styles.settingsButton}
+            onPress={() => setShowSettings(true)}
+          >
+            <Ionicons name="settings-outline" size={24} color="black" />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View style={styles.profileInfo}>
@@ -378,17 +469,206 @@ export default function ProfileScreen() {
     </View>
   );
 
+  const onGestureEvent = (event) => {
+    const { translationX } = event.nativeEvent;
+    if (translationX > 50 && viewMode === 'detail') { // Threshold of 50px
+      setViewMode('grid');
+      setInitialScrollIndex(0);
+    }
+  };
+
+  const renderDetailView = () => (
+    <PanGestureHandler
+      onGestureEvent={onGestureEvent}
+      activeOffsetX={[-20, 20]} // Detect swipes in both directions after 20px
+    >
+      <View style={{ flex: 1 }}>
+        <FlatList
+          data={posts}
+          renderItem={renderDetailPost}
+          keyExtractor={item => item.id}
+          ListHeaderComponent={Header}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          }
+          contentContainerStyle={styles.detailContainer}
+          initialScrollIndex={initialScrollIndex}
+          getItemLayout={(data, index) => ({
+            length: 500,
+            offset: index * 500,
+            index,
+          })}
+          onScrollToIndexFailed={info => {
+            const wait = new Promise(resolve => setTimeout(resolve, 500));
+            wait.then(() => {
+              flatListRef.current?.scrollToIndex({ 
+                index: initialScrollIndex,
+                animated: true
+              });
+            });
+          }}
+          ref={flatListRef}
+        />
+      </View>
+    </PanGestureHandler>
+  );
+
+  const renderGridView = () => (
+    <FlatList
+      data={posts}
+      renderItem={renderGridPost}
+      keyExtractor={item => item.id}
+      numColumns={3}
+      ListHeaderComponent={Header}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+      }
+    />
+  );
+
+  const FriendsList = () => (
+    <View style={styles.friendsContainer}>
+      <Text style={styles.sectionTitle}>Friends ({friendsList.length})</Text>
+      <FlatList
+        data={friendsList}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item }) => (
+          <View style={styles.friendItem}>
+            {item.profilePicUrl ? (
+              <Image
+                source={{ uri: item.profilePicUrl }}
+                style={styles.friendAvatar}
+              />
+            ) : (
+              <View style={[styles.friendAvatar, styles.defaultAvatar]}>
+                <Ionicons name="person" size={30} color="#666" />
+              </View>
+            )}
+            <View style={styles.friendInfo}>
+              <Text style={styles.friendName}>{item.displayName || item.username}</Text>
+              <Text style={styles.friendUsername}>@{item.username}</Text>
+            </View>
+          </View>
+        )}
+        contentContainerStyle={styles.friendsList}
+      />
+    </View>
+  );
+
   return (
     <SafeAreaView style={styles.container}>
-      <FlatList
-        data={posts}
-        renderItem={renderPost}
-        keyExtractor={item => item.id}
-        numColumns={3}
-        ListHeaderComponent={Header}
-        refreshing={refreshing}
-        onRefresh={onRefresh}
-      />
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        {viewMode === 'grid' ? renderGridView() : renderDetailView()}
+      </GestureHandlerRootView>
+
+      {/* Add Friend Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={showAddFriend}
+        onRequestClose={() => setShowAddFriend(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Add Friend</Text>
+              <TouchableOpacity onPress={() => {
+                setShowAddFriend(false);
+                setSearchUsername('');
+                setSearchResults([]);
+              }}>
+                <Ionicons name="close" size={24} color="black" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.searchContainer}>
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search by username"
+                value={searchUsername}
+                onChangeText={handleSearch}
+                autoCapitalize="none"
+              />
+              {searching && (
+                <ActivityIndicator style={styles.searchSpinner} />
+              )}
+            </View>
+
+            <FlatList
+              data={searchResults}
+              keyExtractor={item => item.id}
+              renderItem={({ item }) => (
+                <View style={styles.searchResultItem}>
+                  <Text style={styles.searchResultUsername}>{item.username}</Text>
+                  {item.isFriend ? (
+                    <View style={[styles.addButton, styles.addedButton]}>
+                      <Text style={styles.addedButtonText}>Added</Text>
+                    </View>
+                  ) : item.hasPendingRequest ? (
+                    <View style={[styles.addButton, styles.pendingButton]}>
+                      <Text style={styles.pendingButtonText}>Pending</Text>
+                    </View>
+                  ) : (
+                    <TouchableOpacity
+                      style={styles.addButton}
+                      onPress={() => handleSendFriendRequest(item)}
+                    >
+                      <Text style={styles.addButtonText}>Add</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
+              ListEmptyComponent={
+                searchUsername ? (
+                  <Text style={styles.emptyText}>No users found</Text>
+                ) : (
+                  <Text style={styles.emptyText}>Search for users to add</Text>
+                )
+              }
+            />
+          </View>
+        </View>
+      </Modal>
+
+      {/* Friend Requests Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={showFriendRequests}
+        onRequestClose={() => setShowFriendRequests(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Friend Requests</Text>
+              <TouchableOpacity onPress={() => setShowFriendRequests(false)}>
+                <Ionicons name="close" size={24} color="black" />
+              </TouchableOpacity>
+            </View>
+
+            <FlatList
+              data={friendRequests}
+              keyExtractor={item => item.id}
+              renderItem={({ item }) => (
+                <View style={styles.requestItem}>
+                  <View style={styles.requestInfo}>
+                    <Text style={styles.requestUsername}>{item.username}</Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.acceptButton}
+                    onPress={() => handleAcceptFriendRequest(item.id)}
+                  >
+                    <Text style={styles.acceptButtonText}>Accept</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+              ListEmptyComponent={
+                <Text style={styles.emptyText}>No friend requests</Text>
+              }
+            />
+          </View>
+        </View>
+      </Modal>
 
       {/* Friends List Modal */}
       <Modal
@@ -411,21 +691,7 @@ export default function ProfileScreen() {
             placeholderTextColor="#666"
           />
 
-          <FlatList
-            data={friendsList}
-            keyExtractor={(item) => item.uid}
-            renderItem={({ item }) => (
-              <View style={styles.friendItem}>
-                <View style={styles.friendIcon}>
-                  <Ionicons name="person-circle" size={40} color="#666" />
-                </View>
-                <Text style={styles.friendName}>{item.username}</Text>
-              </View>
-            )}
-            ListEmptyComponent={
-              <Text style={styles.emptyText}>No friends yet</Text>
-            }
-          />
+          <FriendsList />
         </SafeAreaView>
       </Modal>
 
@@ -683,5 +949,205 @@ const styles = StyleSheet.create({
     height: POST_WIDTH,
     borderWidth: 1,
     borderColor: '#fff'
+  },
+  backButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 10,
+    marginBottom: 10
+  },
+  backButtonText: {
+    marginLeft: 8,
+    fontSize: 16,
+    color: 'black'
+  },
+  detailContainer: {
+    paddingHorizontal: 15
+  },
+  detailPost: {
+    marginBottom: 20,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3
+  },
+  detailImage: {
+    width: '100%',
+    height: 400,
+    resizeMode: 'cover'
+  },
+  detailContent: {
+    padding: 15
+  },
+  detailHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10
+  },
+  detailUsername: {
+    fontSize: 16,
+    fontWeight: 'bold'
+  },
+  detailDate: {
+    color: '#666',
+    fontSize: 14
+  },
+  detailCaption: {
+    fontSize: 16,
+    marginBottom: 10,
+    lineHeight: 22
+  },
+  detailTags: {
+    color: '#0095f6',
+    fontSize: 14
+  },
+  headerButtons: {
+    flexDirection: 'row',
+    alignItems: 'center'
+  },
+  requestButton: {
+    padding: 10,
+    marginRight: 10,
+    position: 'relative'
+  },
+  requestBadge: {
+    position: 'absolute',
+    top: 5,
+    right: 5,
+    backgroundColor: '#ff3b30',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 4
+  },
+  requestCount: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 'bold'
+  },
+  requestItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee'
+  },
+  requestInfo: {
+    flex: 1
+  },
+  requestUsername: {
+    fontSize: 16,
+    fontWeight: '500'
+  },
+  acceptButton: {
+    backgroundColor: '#0095f6',
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    borderRadius: 6
+  },
+  acceptButtonText: {
+    color: '#fff',
+    fontWeight: '600'
+  },
+  addFriendButton: {
+    padding: 10,
+    marginRight: 10
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 15,
+    marginBottom: 15
+  },
+  searchSpinner: {
+    marginLeft: 10
+  },
+  searchResultItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee'
+  },
+  searchResultUsername: {
+    fontSize: 16,
+    fontWeight: '500'
+  },
+  addButton: {
+    backgroundColor: '#0095f6',
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    borderRadius: 6
+  },
+  addButtonText: {
+    color: '#fff',
+    fontWeight: '600'
+  },
+  addedButton: {
+    backgroundColor: '#eee'
+  },
+  addedButtonText: {
+    color: '#666',
+    fontWeight: '600'
+  },
+  pendingButton: {
+    backgroundColor: '#e3f2fd'
+  },
+  pendingButtonText: {
+    color: '#0095f6',
+    fontWeight: '600'
+  },
+  friendsContainer: {
+    marginTop: 20,
+    paddingHorizontal: 15
+  },
+  friendsList: {
+    paddingVertical: 10
+  },
+  friendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee'
+  },
+  friendAvatar: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    marginRight: 15
+  },
+  friendInfo: {
+    flex: 1
+  },
+  friendName: {
+    fontSize: 16,
+    fontWeight: '500'
+  },
+  friendUsername: {
+    fontSize: 14,
+    color: '#666'
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 10
+  },
+  defaultAvatar: {
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center'
   }
 });

@@ -3,6 +3,7 @@
 import { Stack, useRouter } from 'expo-router';
 import { onAuthStateChanged } from 'firebase/auth';
 import { useEffect } from 'react';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { auth } from '../firebase';
 
 export default function RootLayout() {
@@ -23,22 +24,24 @@ export default function RootLayout() {
   }, []);
 
   return (
-    <Stack
-      screenOptions={{
-        headerShown: false,
-        animation: 'slide_from_right',
-      }}
-    >
-      <Stack.Screen name="index" />
-      <Stack.Screen name="login" />
-      <Stack.Screen name="signup" />
-      <Stack.Screen 
-        name="tabs" 
-        options={{
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <Stack
+        screenOptions={{
           headerShown: false,
-          animation: 'fade',
+          animation: 'slide_from_right',
         }}
-      />
-    </Stack>
+      >
+        <Stack.Screen name="index" />
+        <Stack.Screen name="login" />
+        <Stack.Screen name="signup" />
+        <Stack.Screen 
+          name="tabs" 
+          options={{
+            headerShown: false,
+            animation: 'fade',
+          }}
+        />
+      </Stack>
+    </GestureHandlerRootView>
   );
 }
