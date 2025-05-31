@@ -35,10 +35,16 @@ export default function RootLayout() {
         <Stack.Screen name="login" />
         <Stack.Screen name="signup" />
         <Stack.Screen 
-          name="tabs" 
+          name="tabs"
           options={{
             headerShown: false,
-            animation: 'fade',
+          }}
+        />
+        <Stack.Screen 
+          name="FriendProfile"
+          options={{
+            presentation: 'modal',
+            animation: 'slide_from_right',
           }}
         />
       </Stack>

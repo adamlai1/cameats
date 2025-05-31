@@ -533,7 +533,16 @@ export default function ProfileScreen() {
         data={friendsList}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
-          <View style={styles.friendItem}>
+          <TouchableOpacity 
+            style={styles.friendItem}
+            onPress={() => {
+              setShowFriendsList(false); // Close friends list modal first
+              router.push({
+                pathname: '/FriendProfile',
+                params: { userId: item.id }
+              });
+            }}
+          >
             {item.profilePicUrl ? (
               <Image
                 source={{ uri: item.profilePicUrl }}
@@ -548,7 +557,8 @@ export default function ProfileScreen() {
               <Text style={styles.friendName}>{item.displayName || item.username}</Text>
               <Text style={styles.friendUsername}>@{item.username}</Text>
             </View>
-          </View>
+            <Ionicons name="chevron-forward" size={20} color="#666" />
+          </TouchableOpacity>
         )}
         contentContainerStyle={styles.friendsList}
       />
