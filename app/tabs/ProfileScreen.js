@@ -1,22 +1,55 @@
 // app/tabs/ProfileScreen.js
 
+import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
+import { useRouter } from 'expo-router';
 import { collection, doc, getDoc, getDocs, orderBy, query, updateDoc, where } from 'firebase/firestore';
+import { getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
 import { useEffect, useState } from 'react';
-import { Alert, Button, FlatList, Image, Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import {
+    ActivityIndicator,
+    Alert,
+    Dimensions,
+    FlatList,
+    Image,
+    Modal,
+    SafeAreaView,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View
+} from 'react-native';
 import { auth, db } from '../../firebase';
+
+const WINDOW_WIDTH = Dimensions.get('window').width;
+const POST_WIDTH = WINDOW_WIDTH / 3;
 
 export default function ProfileScreen() {
   const [username, setUsername] = useState('');
+  const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
+  const [bio, setBio] = useState('');
+  const [profilePicUrl, setProfilePicUrl] = useState(null);
+  const [uploadingPic, setUploadingPic] = useState(false);
   const [friendsList, setFriendsList] = useState([]);
   const [friendRequests, setFriendRequests] = useState([]);
-  const [friendUsername, setFriendUsername] = useState('');
   const [posts, setPosts] = useState([]);
   const [showFriendsList, setShowFriendsList] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const router = useRouter();
 
   useEffect(() => {
     fetchProfile();
   }, []);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await fetchProfile();
+    setRefreshing(false);
+  };
 
   const fetchProfile = async () => {
     try {
@@ -29,6 +62,9 @@ export default function ProfileScreen() {
       const userData = userDoc.data();
       setUsername(userData.username);
       setEmail(userData.email);
+      setDisplayName(userData.displayName || '');
+      setBio(userData.bio || '');
+      setProfilePicUrl(userData.profilePicUrl);
 
       // Fetch friends' details
       const friendPromises = (userData.friends || []).map(friendId =>
@@ -54,15 +90,43 @@ export default function ProfileScreen() {
       const requests = await Promise.all(requestPromises);
       setFriendRequests(requests.filter(r => r.username));
 
-      // Fetch posts
-      const postsQuery = query(
-        collection(db, 'posts'),
-        where('userId', '==', auth.currentUser.uid),
-        orderBy('createdAt', 'desc')
-      );
-      const postsSnapshot = await getDocs(postsQuery);
-      const postsData = postsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setPosts(postsData);
+      // Fetch both user's posts and posts where user is tagged
+      const [ownPostsSnapshot, taggedPostsSnapshot] = await Promise.all([
+        // Query for posts created by the user
+        getDocs(query(
+          collection(db, 'posts'),
+          where('userId', '==', auth.currentUser.uid),
+          orderBy('createdAt', 'desc')
+        )),
+        // Query for posts where user is tagged
+        getDocs(query(
+          collection(db, 'posts'),
+          where('taggedFriendIds', 'array-contains', auth.currentUser.uid),
+          orderBy('createdAt', 'desc')
+        ))
+      ]);
+
+      // Combine and sort all posts
+      const ownPosts = ownPostsSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        isOwnPost: true
+      }));
+      
+      const taggedPosts = taggedPostsSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        isTagged: true
+      }));
+
+      // Merge posts and sort by createdAt
+      const allPosts = [...ownPosts, ...taggedPosts].sort((a, b) => {
+        const dateA = a.createdAt?.toDate() || new Date(0);
+        const dateB = b.createdAt?.toDate() || new Date(0);
+        return dateB - dateA;
+      });
+
+      setPosts(allPosts);
     } catch (error) {
       console.error('Error fetching profile:', error);
     }
@@ -137,204 +201,487 @@ export default function ProfileScreen() {
     }
   };
 
+  const handleSaveSettings = async () => {
+    try {
+      await updateDoc(doc(db, 'users', auth.currentUser.uid), {
+        displayName,
+        username,
+        bio
+      });
+      setShowSettings(false);
+      Alert.alert('Success', 'Profile updated successfully!');
+    } catch (error) {
+      console.error('Error updating profile:', error);
+      Alert.alert('Error', 'Failed to update profile. Please try again.');
+    }
+  };
+
+  const handleProfilePicPress = async () => {
+    const options = ['Take Photo', 'Choose from Library', 'Cancel'];
+    Alert.alert(
+      'Update Profile Picture',
+      'Choose an option',
+      [
+        {
+          text: options[0],
+          onPress: () => pickProfilePic('camera')
+        },
+        {
+          text: options[1],
+          onPress: () => pickProfilePic('library')
+        },
+        {
+          text: options[2],
+          style: 'cancel'
+        }
+      ]
+    );
+  };
+
+  const pickProfilePic = async (type) => {
+    try {
+      let result;
+      if (type === 'camera') {
+        result = await ImagePicker.launchCameraAsync({
+          allowsEditing: true,
+          aspect: [1, 1],
+          quality: 0.7
+        });
+      } else {
+        result = await ImagePicker.launchImageLibraryAsync({
+          allowsEditing: true,
+          aspect: [1, 1],
+          quality: 0.7
+        });
+      }
+
+      if (!result.canceled) {
+        await uploadProfilePic(result.assets[0].uri);
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'Failed to pick image. Please try again.');
+    }
+  };
+
+  const uploadProfilePic = async (uri) => {
+    if (!uri) return;
+    setUploadingPic(true);
+
+    try {
+      const response = await fetch(uri);
+      const blob = await response.blob();
+
+      if (blob.size > 5 * 1024 * 1024) { // 5MB limit
+        Alert.alert('Error', 'Image too large. Please choose a smaller image.');
+        return;
+      }
+
+      const filename = `profile_pictures/${auth.currentUser.uid}_${Date.now()}.jpg`;
+      const storageRef = ref(storage, filename);
+      const uploadTask = uploadBytesResumable(storageRef, blob);
+
+      uploadTask.on(
+        'state_changed',
+        null,
+        (error) => {
+          console.error('Upload error:', error);
+          Alert.alert('Error', 'Failed to upload image. Please try again.');
+          setUploadingPic(false);
+        },
+        async () => {
+          const url = await getDownloadURL(uploadTask.snapshot.ref);
+          await updateDoc(doc(db, 'users', auth.currentUser.uid), {
+            profilePicUrl: url
+          });
+          setProfilePicUrl(url);
+          setUploadingPic(false);
+        }
+      );
+    } catch (error) {
+      console.error('Error uploading profile picture:', error);
+      Alert.alert('Error', 'Failed to update profile picture. Please try again.');
+      setUploadingPic(false);
+    }
+  };
+
   const renderPost = ({ item }) => (
-    <View style={styles.postContainer}>
-      <Image source={{ uri: item.imageUrl }} style={styles.postImage} />
-      <Text style={styles.postCaption}>{item.caption}</Text>
-      {item.tags && item.tags.length > 0 && (
-        <Text style={styles.postTags}>Tags: {item.tags.join(', ')}</Text>
-      )}
+    <TouchableOpacity style={styles.gridPost}>
+      <Image 
+        source={{ uri: item.imageUrl }} 
+        style={styles.gridImage}
+      />
+    </TouchableOpacity>
+  );
+
+  const Header = () => (
+    <View style={styles.header}>
+      <View style={styles.headerTop}>
+        <Text style={styles.username}>{username}</Text>
+        <TouchableOpacity 
+          style={styles.settingsButton}
+          onPress={() => setShowSettings(true)}
+        >
+          <Ionicons name="settings-outline" size={24} color="black" />
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.profileInfo}>
+        <TouchableOpacity 
+          style={styles.profilePicContainer}
+          onPress={handleProfilePicPress}
+        >
+          <View style={styles.profilePic}>
+            {profilePicUrl ? (
+              <Image 
+                source={{ uri: profilePicUrl }} 
+                style={styles.profilePicImage} 
+              />
+            ) : (
+              <Ionicons name="person" size={40} color="#666" />
+            )}
+            {uploadingPic && (
+              <View style={styles.uploadingOverlay}>
+                <ActivityIndicator color="#fff" />
+              </View>
+            )}
+          </View>
+          <View style={styles.editIconContainer}>
+            <Ionicons name="camera" size={14} color="#fff" />
+          </View>
+        </TouchableOpacity>
+
+        <View style={styles.statsContainer}>
+          <View style={styles.statItem}>
+            <Text style={styles.statNumber}>{posts.length}</Text>
+            <Text style={styles.statLabel}>Meals</Text>
+          </View>
+
+          <TouchableOpacity 
+            style={styles.statItem}
+            onPress={() => setShowFriendsList(true)}
+          >
+            <Text style={styles.statNumber}>{friendsList.length}</Text>
+            <Text style={styles.statLabel}>Friends</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <View style={styles.bioContainer}>
+        {displayName && <Text style={styles.displayName}>{displayName}</Text>}
+        {bio ? (
+          <Text style={styles.bio}>{bio}</Text>
+        ) : (
+          <Text style={styles.noBio}>No bio yet</Text>
+        )}
+      </View>
     </View>
   );
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Your Profile</Text>
-        <Text style={styles.username}>{username}</Text>
-        <Text style={styles.email}>{email}</Text>
-        
-        <TouchableOpacity 
-          style={styles.friendCounter}
-          onPress={() => setShowFriendsList(true)}
-        >
-          <Text style={styles.friendCountText}>
-            {friendsList.length} {friendsList.length === 1 ? 'Friend' : 'Friends'}
-          </Text>
-        </TouchableOpacity>
-      </View>
+    <SafeAreaView style={styles.container}>
+      <FlatList
+        data={posts}
+        renderItem={renderPost}
+        keyExtractor={item => item.id}
+        numColumns={3}
+        ListHeaderComponent={Header}
+        refreshing={refreshing}
+        onRefresh={onRefresh}
+      />
 
+      {/* Friends List Modal */}
       <Modal
         animationType="slide"
         transparent={true}
         visible={showFriendsList}
         onRequestClose={() => setShowFriendsList(false)}
       >
-        <View style={styles.modalView}>
+        <SafeAreaView style={styles.modalView}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Friends</Text>
+            <TouchableOpacity onPress={() => setShowFriendsList(false)}>
+              <Ionicons name="close" size={24} color="black" />
+            </TouchableOpacity>
+          </View>
+
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search friends..."
+            placeholderTextColor="#666"
+          />
+
+          <FlatList
+            data={friendsList}
+            keyExtractor={(item) => item.uid}
+            renderItem={({ item }) => (
+              <View style={styles.friendItem}>
+                <View style={styles.friendIcon}>
+                  <Ionicons name="person-circle" size={40} color="#666" />
+                </View>
+                <Text style={styles.friendName}>{item.username}</Text>
+              </View>
+            )}
+            ListEmptyComponent={
+              <Text style={styles.emptyText}>No friends yet</Text>
+            }
+          />
+        </SafeAreaView>
+      </Modal>
+
+      {/* Settings Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={showSettings}
+        onRequestClose={() => setShowSettings(false)}
+      >
+        <View style={styles.modalContainer}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Friends List</Text>
-            <FlatList
-              data={friendsList}
-              keyExtractor={(item) => item.uid}
-              renderItem={({ item }) => (
-                <Text style={styles.friendItem}>{item.username}</Text>
-              )}
-              ListEmptyComponent={
-                <Text style={styles.emptyText}>No friends yet</Text>
-              }
-            />
-            <Button title="Close" onPress={() => setShowFriendsList(false)} />
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Edit Profile</Text>
+              <TouchableOpacity onPress={() => setShowSettings(false)}>
+                <Ionicons name="close" size={24} color="black" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={styles.modalScrollContent}>
+              <Text style={styles.inputLabel}>Display Name</Text>
+              <TextInput
+                style={styles.input}
+                value={displayName}
+                onChangeText={setDisplayName}
+                placeholder="Enter display name"
+              />
+
+              <Text style={styles.inputLabel}>Username</Text>
+              <TextInput
+                style={styles.input}
+                value={username}
+                onChangeText={setUsername}
+                placeholder="Enter username"
+              />
+
+              <Text style={styles.inputLabel}>Bio</Text>
+              <TextInput
+                style={[styles.input, styles.bioInput]}
+                value={bio}
+                onChangeText={setBio}
+                placeholder="Write a bio..."
+                multiline
+                numberOfLines={4}
+                maxLength={150}
+              />
+              <Text style={styles.charCount}>{bio.length}/150</Text>
+
+              <TouchableOpacity
+                style={styles.saveButton}
+                onPress={handleSaveSettings}
+              >
+                <Text style={styles.saveButtonText}>Save Changes</Text>
+              </TouchableOpacity>
+            </ScrollView>
           </View>
         </View>
       </Modal>
-
-      {friendRequests.length > 0 && (
-        <View style={styles.requestsSection}>
-          <Text style={styles.subtitle}>Friend Requests ({friendRequests.length})</Text>
-          {friendRequests.map((request, index) => (
-            <View key={index} style={styles.requestItem}>
-              <Text style={styles.requestUsername}>{request.username}</Text>
-              <Button title="Accept" onPress={() => handleAcceptFriendRequest(request.uid)} />
-            </View>
-          ))}
-        </View>
-      )}
-
-      <View style={styles.addFriendSection}>
-        <TextInput
-          placeholder="Add friend by username"
-          value={friendUsername}
-          onChangeText={setFriendUsername}
-          style={styles.input}
-        />
-        <Button title="Send Request" onPress={handleSendFriendRequest} />
-      </View>
-
-      <Text style={styles.subtitle}>Your Posts</Text>
-      <FlatList
-        data={posts}
-        keyExtractor={(item) => item.id}
-        renderItem={renderPost}
-        contentContainerStyle={styles.postsContainer}
-      />
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 20,
     backgroundColor: '#fff'
   },
   header: {
-    alignItems: 'center',
-    marginBottom: 20
+    padding: 15
   },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 10
+  headerTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 15
   },
   username: {
+    fontSize: 20,
+    fontWeight: 'bold'
+  },
+  profileInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 15
+  },
+  profilePicContainer: {
+    marginRight: 30
+  },
+  profilePic: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden'
+  },
+  profilePicImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover'
+  },
+  editIconContainer: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    backgroundColor: '#0095f6',
+    borderRadius: 10,
+    width: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  uploadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  statsContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-around'
+  },
+  statItem: {
+    alignItems: 'center'
+  },
+  statNumber: {
     fontSize: 18,
-    marginBottom: 5
+    fontWeight: 'bold'
   },
-  email: {
-    fontSize: 16,
-    color: '#666',
-    marginBottom: 10
+  statLabel: {
+    color: '#666'
   },
-  friendCounter: {
-    backgroundColor: '#e1e1e1',
-    padding: 10,
-    borderRadius: 20,
+  bioContainer: {
+    paddingHorizontal: 15,
     marginTop: 10
   },
-  friendCountText: {
+  displayName: {
+    fontWeight: 'bold',
     fontSize: 16,
-    fontWeight: '500'
+    marginBottom: 4
+  },
+  bio: {
+    fontSize: 14,
+    color: '#262626',
+    lineHeight: 20
+  },
+  noBio: {
+    fontSize: 14,
+    color: '#666',
+    fontStyle: 'italic'
+  },
+  bioInput: {
+    height: 100,
+    textAlignVertical: 'top',
+    paddingTop: 10
+  },
+  charCount: {
+    fontSize: 12,
+    color: '#666',
+    textAlign: 'right',
+    marginTop: 4
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    marginBottom: 6,
+    marginTop: 16,
+    color: '#262626'
   },
   modalView: {
     flex: 1,
-    justifyContent: 'center',
+    backgroundColor: '#fff'
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.5)'
-  },
-  modalContent: {
-    backgroundColor: 'white',
-    borderRadius: 20,
-    padding: 20,
-    width: '80%',
-    maxHeight: '70%'
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 15,
-    textAlign: 'center'
-  },
-  friendItem: {
-    fontSize: 16,
-    padding: 10,
+    padding: 15,
     borderBottomWidth: 1,
     borderBottomColor: '#eee'
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold'
+  },
+  searchInput: {
+    margin: 15,
+    padding: 10,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 10
+  },
+  friendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee'
+  },
+  friendIcon: {
+    marginRight: 15
+  },
+  friendName: {
+    fontSize: 16
   },
   emptyText: {
     textAlign: 'center',
     color: '#666',
     padding: 20
   },
-  requestsSection: {
-    marginBottom: 20
+  modalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center'
   },
-  requestItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 10,
-    backgroundColor: '#f5f5f5',
+  modalContent: {
+    backgroundColor: '#fff',
+    padding: 20,
     borderRadius: 10,
-    marginVertical: 5
+    width: '80%'
   },
-  requestUsername: {
-    fontSize: 16
-  },
-  addFriendSection: {
-    marginBottom: 20
+  modalScrollContent: {
+    padding: 10
   },
   input: {
     borderWidth: 1,
     borderColor: '#ddd',
-    padding: 10,
-    borderRadius: 10,
-    marginBottom: 10
-  },
-  subtitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 10
-  },
-  postsContainer: {
-    paddingBottom: 20
-  },
-  postContainer: {
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 10,
-    overflow: 'hidden'
-  },
-  postImage: {
-    width: '100%',
-    height: 200
-  },
-  postCaption: {
+    borderRadius: 8,
     padding: 10,
     fontSize: 16
   },
-  postTags: {
-    padding: 10,
-    color: '#666'
+  saveButton: {
+    backgroundColor: '#0095f6',
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 20
+  },
+  saveButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold'
+  },
+  settingsButton: {
+    padding: 10
+  },
+  gridPost: {
+    width: POST_WIDTH,
+    height: POST_WIDTH
+  },
+  gridImage: {
+    width: POST_WIDTH,
+    height: POST_WIDTH,
+    borderWidth: 1,
+    borderColor: '#fff'
   }
 });

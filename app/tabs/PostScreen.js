@@ -1,5 +1,6 @@
 // app/PostScreen.js
 
+import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { addDoc, collection, doc, getDoc, serverTimestamp } from 'firebase/firestore';
@@ -13,6 +14,7 @@ import {
   Keyboard,
   KeyboardAvoidingView,
   Platform,
+  SafeAreaView,
   StyleSheet,
   Text,
   TextInput,
@@ -132,6 +134,7 @@ export default function PostScreen() {
               id: friend.id,
               username: friend.username
             })),
+            taggedFriendIds: selectedFriends.map(friend => friend.id),
             userId: auth.currentUser.uid,
             username,
             createdAt: serverTimestamp(),
@@ -154,79 +157,105 @@ export default function PostScreen() {
   };
 
   return (
-    <KeyboardAvoidingView 
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={styles.container}
-    >
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <View style={styles.container}>
-          <Text style={styles.title}>Create a Post</Text>
-          
-          <View style={styles.imageSection}>
-            <View style={styles.buttonContainer}>
-              <Button title="Take a Photo" onPress={takePhoto} />
-              <Button title="Pick an Image" onPress={pickImage} />
-            </View>
-            {image && <Image source={{ uri: image }} style={styles.image} />}
-          </View>
-
-          {uploading && (
-            <Progress.Bar progress={progress} width={200} style={styles.progressBar} />
-          )}
-
-          <TextInput 
-            placeholder="Add a caption..." 
-            value={caption} 
-            onChangeText={setCaption} 
-            style={styles.input}
-            multiline
-          />
-
-          <View style={styles.friendsSection}>
-            <Text style={styles.subtitle}>Tag Friends:</Text>
-            {friends.length > 0 ? (
-              <FlatList
-                data={friends}
-                keyExtractor={(item) => item.id}
-                renderItem={({ item }) => (
-                  <TouchableOpacity
-                    style={[
-                      styles.friendItem,
-                      selectedFriends.some(f => f.id === item.id) && styles.selectedFriend
-                    ]}
-                    onPress={() => toggleFriend(item)}
-                  >
-                    <Text style={[
-                      styles.friendName,
-                      selectedFriends.some(f => f.id === item.id) && styles.selectedText
-                    ]}>
-                      {item.username}
-                    </Text>
-                  </TouchableOpacity>
+    <SafeAreaView style={styles.safeArea}>
+      <KeyboardAvoidingView 
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.container}
+      >
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <View style={styles.container}>
+            <View style={styles.scrollContainer}>
+              <Text style={styles.title}>Create a Post</Text>
+              
+              <View style={styles.imageSection}>
+                <View style={styles.buttonContainer}>
+                  <Button title="Take a Photo" onPress={takePhoto} />
+                  <Button title="Pick an Image" onPress={pickImage} />
+                </View>
+                {image && (
+                  <View style={styles.imageContainer}>
+                    <Image source={{ uri: image }} style={styles.image} />
+                    <TouchableOpacity 
+                      style={styles.closeButton}
+                      onPress={() => setImage(null)}
+                    >
+                      <Ionicons name="close-circle" size={32} color="#fff" />
+                    </TouchableOpacity>
+                  </View>
                 )}
-                style={styles.friendsList}
-              />
-            ) : (
-              <Text style={styles.noFriendsText}>Add some friends to tag them in your posts!</Text>
-            )}
-          </View>
+              </View>
 
-          <Button 
-            title={uploading ? 'Uploading...' : 'Post'} 
-            onPress={uploadPost} 
-            disabled={uploading} 
-          />
-        </View>
-      </TouchableWithoutFeedback>
-    </KeyboardAvoidingView>
+              {uploading && (
+                <Progress.Bar progress={progress} width={200} style={styles.progressBar} />
+              )}
+
+              <TextInput 
+                placeholder="Add a caption..." 
+                value={caption} 
+                onChangeText={setCaption} 
+                style={styles.input}
+                multiline
+              />
+
+              <View style={styles.friendsSection}>
+                <Text style={styles.subtitle}>Tag Friends:</Text>
+                {friends.length > 0 ? (
+                  <FlatList
+                    data={friends}
+                    keyExtractor={(item) => item.id}
+                    renderItem={({ item }) => (
+                      <TouchableOpacity
+                        style={[
+                          styles.friendItem,
+                          selectedFriends.some(f => f.id === item.id) && styles.selectedFriend
+                        ]}
+                        onPress={() => toggleFriend(item)}
+                      >
+                        <Text style={[
+                          styles.friendName,
+                          selectedFriends.some(f => f.id === item.id) && styles.selectedText
+                        ]}>
+                          {item.username}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                    style={styles.friendsList}
+                    scrollEnabled={true}
+                    nestedScrollEnabled={true}
+                  />
+                ) : (
+                  <Text style={styles.noFriendsText}>Add some friends to tag them in your posts!</Text>
+                )}
+              </View>
+            </View>
+
+            <View style={styles.bottomButton}>
+              <Button 
+                title={uploading ? 'Uploading...' : 'Post'} 
+                onPress={uploadPost} 
+                disabled={uploading} 
+              />
+            </View>
+          </View>
+        </TouchableWithoutFeedback>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#fff'
+  },
   container: {
     flex: 1,
-    padding: 20,
     backgroundColor: '#fff'
+  },
+  scrollContainer: {
+    flex: 1,
+    padding: 20,
+    paddingBottom: 80 // Add padding to avoid overlap with bottom button
   },
   title: {
     fontSize: 24,
@@ -244,10 +273,26 @@ const styles = StyleSheet.create({
     width: '100%',
     marginBottom: 10
   },
+  imageContainer: {
+    position: 'relative',
+  },
   image: {
     width: 250,
     height: 250,
     borderRadius: 10
+  },
+  closeButton: {
+    position: 'absolute',
+    top: -10,
+    right: -10,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 16,
+    padding: 0,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
   },
   progressBar: {
     alignSelf: 'center',
@@ -263,7 +308,8 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top'
   },
   friendsSection: {
-    marginBottom: 20
+    marginBottom: 20,
+    maxHeight: 200 // Limit the height of the friends section
   },
   subtitle: {
     fontSize: 18,
@@ -271,7 +317,7 @@ const styles = StyleSheet.create({
     marginBottom: 10
   },
   friendsList: {
-    maxHeight: 200
+    flexGrow: 0 // Prevent the list from expanding indefinitely
   },
   friendItem: {
     padding: 10,
@@ -293,5 +339,15 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     color: '#666',
     fontStyle: 'italic'
+  },
+  bottomButton: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#fff',
+    padding: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#ddd'
   }
 });
