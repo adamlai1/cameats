@@ -5,7 +5,21 @@ import { useRouter } from 'expo-router';
 import { addDoc, collection, doc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
 import { useEffect, useState } from 'react';
-import { Alert, Button, FlatList, Image, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import {
+  Alert,
+  Button,
+  FlatList,
+  Image,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+  View
+} from 'react-native';
 import * as Progress from 'react-native-progress';
 import { auth, db, storage } from '../../firebase';
 
@@ -140,64 +154,71 @@ export default function PostScreen() {
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Create a Post</Text>
-      
-      <View style={styles.imageSection}>
-        <View style={styles.buttonContainer}>
-          <Button title="Take a Photo" onPress={takePhoto} />
-          <Button title="Pick an Image" onPress={pickImage} />
-        </View>
-        {image && <Image source={{ uri: image }} style={styles.image} />}
-      </View>
+    <KeyboardAvoidingView 
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      style={styles.container}
+    >
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+        <View style={styles.container}>
+          <Text style={styles.title}>Create a Post</Text>
+          
+          <View style={styles.imageSection}>
+            <View style={styles.buttonContainer}>
+              <Button title="Take a Photo" onPress={takePhoto} />
+              <Button title="Pick an Image" onPress={pickImage} />
+            </View>
+            {image && <Image source={{ uri: image }} style={styles.image} />}
+          </View>
 
-      {uploading && (
-        <Progress.Bar progress={progress} width={200} style={styles.progressBar} />
-      )}
+          {uploading && (
+            <Progress.Bar progress={progress} width={200} style={styles.progressBar} />
+          )}
 
-      <TextInput 
-        placeholder="Add a caption..." 
-        value={caption} 
-        onChangeText={setCaption} 
-        style={styles.input}
-        multiline
-      />
-
-      <View style={styles.friendsSection}>
-        <Text style={styles.subtitle}>Tag Friends:</Text>
-        {friends.length > 0 ? (
-          <FlatList
-            data={friends}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                style={[
-                  styles.friendItem,
-                  selectedFriends.some(f => f.id === item.id) && styles.selectedFriend
-                ]}
-                onPress={() => toggleFriend(item)}
-              >
-                <Text style={[
-                  styles.friendName,
-                  selectedFriends.some(f => f.id === item.id) && styles.selectedText
-                ]}>
-                  {item.username}
-                </Text>
-              </TouchableOpacity>
-            )}
-            style={styles.friendsList}
+          <TextInput 
+            placeholder="Add a caption..." 
+            value={caption} 
+            onChangeText={setCaption} 
+            style={styles.input}
+            multiline
           />
-        ) : (
-          <Text style={styles.noFriendsText}>Add some friends to tag them in your posts!</Text>
-        )}
-      </View>
 
-      <Button 
-        title={uploading ? 'Uploading...' : 'Post'} 
-        onPress={uploadPost} 
-        disabled={uploading} 
-      />
-    </View>
+          <View style={styles.friendsSection}>
+            <Text style={styles.subtitle}>Tag Friends:</Text>
+            {friends.length > 0 ? (
+              <FlatList
+                data={friends}
+                keyExtractor={(item) => item.id}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={[
+                      styles.friendItem,
+                      selectedFriends.some(f => f.id === item.id) && styles.selectedFriend
+                    ]}
+                    onPress={() => toggleFriend(item)}
+                  >
+                    <Text style={[
+                      styles.friendName,
+                      selectedFriends.some(f => f.id === item.id) && styles.selectedText
+                    ]}>
+                      {item.username}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+                style={styles.friendsList}
+              />
+            ) : (
+              <Text style={styles.noFriendsText}>Add some friends to tag them in your posts!</Text>
+            )}
+          </View>
+
+          <Button 
+            title={uploading ? 'Uploading...' : 'Post'} 
+            onPress={uploadPost} 
+            disabled={uploading} 
+          />
+        </View>
+      </TouchableWithoutFeedback>
+    </KeyboardAvoidingView>
   );
 }
 

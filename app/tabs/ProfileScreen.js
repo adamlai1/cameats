@@ -1,6 +1,6 @@
 // app/tabs/ProfileScreen.js
 
-import { collection, doc, getDoc, getDocs, query, updateDoc, where } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, orderBy, query, updateDoc, where } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
 import { Alert, Button, FlatList, Image, Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { auth, db } from '../../firebase';
@@ -57,7 +57,8 @@ export default function ProfileScreen() {
       // Fetch posts
       const postsQuery = query(
         collection(db, 'posts'),
-        where('userId', '==', auth.currentUser.uid)
+        where('userId', '==', auth.currentUser.uid),
+        orderBy('createdAt', 'desc')
       );
       const postsSnapshot = await getDocs(postsQuery);
       const postsData = postsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));

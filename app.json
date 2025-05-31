@@ -44,9 +44,7 @@
         "projectId": "db139f51-20fd-42e1-b59d-aad06ad23143"
       }
     },
-    "runtimeVersion": {
-      "policy": "appVersion"
-    },
+    "runtimeVersion": "1.0.0",
     "updates": {
       "url": "https://u.expo.dev/db139f51-20fd-42e1-b59d-aad06ad23143"
     }
