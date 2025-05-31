@@ -7,7 +7,7 @@ import { getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
 import { useEffect, useState } from 'react';
 import { Alert, Button, FlatList, Image, StyleSheet, Text, TextInput, View } from 'react-native';
 import * as Progress from 'react-native-progress';
-import { auth, db, storage } from '../firebase';
+import { auth, db, storage } from '../../firebase';
 
 export default function PostScreen() {
   const [image, setImage] = useState(null);
@@ -100,6 +100,7 @@ export default function PostScreen() {
           setTags([]);
           setProgress(0);
           setUploading(false);
+          router.replace('/tabs/FeedScreen');
         }
       );
     } catch (error) {
@@ -136,7 +137,6 @@ export default function PostScreen() {
       />
 
       <Button title={uploading ? 'Uploading...' : 'Post'} onPress={uploadPost} disabled={uploading} />
-      <Button title="Back to Home" onPress={() => router.push('/')} />
     </View>
   );
 }

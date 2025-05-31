@@ -1,15 +1,13 @@
 // app/FeedScreen.js
 
-import { useRouter } from 'expo-router';
 import { collection, doc, getDoc, getDocs, orderBy, query, where } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
-import { Button, FlatList, Image, StyleSheet, Text, View } from 'react-native';
-import { auth, db } from '../firebase';
+import { FlatList, Image, StyleSheet, Text, View } from 'react-native';
+import { auth, db } from '../../firebase';
 
 export default function FeedScreen() {
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
-  const router = useRouter();
 
   useEffect(() => {
     const fetchPosts = async () => {
@@ -76,7 +74,6 @@ export default function FeedScreen() {
           contentContainerStyle={{ paddingBottom: 20 }}
         />
       )}
-      <Button title="Back to Home" onPress={() => router.push('/')} />
     </View>
   );
 }

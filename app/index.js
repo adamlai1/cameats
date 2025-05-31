@@ -1,38 +1,35 @@
 // app/index.js
 
-import { Link } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, Text, View } from 'react-native';
-import { auth } from '../firebase';
+import { useRouter } from 'expo-router';
+import { Button, StyleSheet, Text, View } from 'react-native';
 
 export default function Home() {
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged(() => {
-      setLoading(false);
-    });
-
-    return () => unsubscribe();
-  }, []);
-
-  if (loading) {
-    return (
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator size="large" />
-        <Text>Loading CamEats...</Text>
-      </View>
-    );
-  }
+  const router = useRouter();
 
   return (
-    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-      <Text style={{ fontSize: 24, fontWeight: 'bold', marginBottom: 20 }}>Welcome to CamEats!</Text>
-      <Link href="/signup" style={{ marginVertical: 10 }}>Sign Up</Link>
-      <Link href="/login" style={{ marginVertical: 10 }}>Login</Link>
-      <Link href="/post" style={{ marginVertical: 10 }}>Create a Post</Link>
-      <Link href="/FeedScreen" style={{ marginVertical: 10 }}>Feed</Link>
-      <Link href="/ProfileScreen" style={{ marginVertical: 10 }}>Profile</Link>
+    <View style={styles.container}>
+      <Text style={styles.title}>Welcome to CamEats!</Text>
+      <View style={styles.buttonContainer}>
+        <Button title="Login" onPress={() => router.replace('/login')} />
+        <Button title="Create Account" onPress={() => router.replace('/signup')} />
+      </View>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20
+  },
+  title: {
+    fontSize: 24,
+    marginBottom: 20
+  },
+  buttonContainer: {
+    width: '80%',
+    gap: 10
+  }
+});
