@@ -111,28 +111,15 @@ export default function PostScreen() {
         },
         async () => {
           const url = await getDownloadURL(uploadTask.snapshot.ref);
-          
-          // Create array of all collaborators (poster + tagged friends)
-          const collaborators = [
-            {
-              id: auth.currentUser.uid,
-              username,
-              role: 'creator'
-            },
-            ...selectedFriends.map(friend => ({
-              id: friend.id,
-              username: friend.username,
-              role: 'tagged'
-            }))
-          ];
-
-          // Create the post
           await addDoc(collection(db, 'posts'), {
             imageUrl: url,
             caption,
-            collaborators,
-            userId: auth.currentUser.uid, // Original creator
-            username, // Original creator's username
+            taggedFriends: selectedFriends.map(friend => ({
+              id: friend.id,
+              username: friend.username
+            })),
+            userId: auth.currentUser.uid,
+            username,
             createdAt: serverTimestamp(),
           });
 
@@ -177,7 +164,7 @@ export default function PostScreen() {
       />
 
       <View style={styles.friendsSection}>
-        <Text style={styles.subtitle}>Tag Friends (they'll be collaborators):</Text>
+        <Text style={styles.subtitle}>Tag Friends:</Text>
         {friends.length > 0 ? (
           <FlatList
             data={friends}

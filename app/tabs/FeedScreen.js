@@ -1,133 +1,89 @@
-// app/tabs/FeedScreen.js
+// app/FeedScreen.js
 
-import { useRouter } from 'expo-router';
-import { collection, getDocs, orderBy, query, where } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, orderBy, query, where } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
 import { FlatList, Image, StyleSheet, Text, View } from 'react-native';
 import { auth, db } from '../../firebase';
 
 export default function FeedScreen() {
   const [posts, setPosts] = useState([]);
-  const router = useRouter();
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const fetchPosts = async () => {
+      setLoading(true);
+      try {
+        const currentUserId = auth.currentUser.uid;
+        const userDoc = await getDoc(doc(db, 'users', currentUserId));
+
+        if (!userDoc.exists()) {
+          console.error('User profile not found');
+          return;
+        }
+
+        const friends = userDoc.data().friends || [];
+        const filterIds = [currentUserId, ...friends];
+
+        if (filterIds.length === 0) {
+          setPosts([]);
+          setLoading(false);
+          return;
+        }
+
+        const chunkSize = 10;
+        let allPosts = [];
+
+        for (let i = 0; i < filterIds.length; i += chunkSize) {
+          const chunk = filterIds.slice(i, i + chunkSize);
+          const q = query(collection(db, 'posts'), where('userId', 'in', chunk), orderBy('createdAt', 'desc'));
+          const snapshot = await getDocs(q);
+          const postsChunk = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          allPosts = [...allPosts, ...postsChunk];
+        }
+
+        setPosts(allPosts);
+      } catch (error) {
+        console.error('Error fetching posts:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
     fetchPosts();
   }, []);
 
-  const fetchPosts = async () => {
-    try {
-      // Get current user's friends
-      const userDoc = await getDocs(query(collection(db, 'users'), where('friends', 'array-contains', auth.currentUser.uid)));
-      const friendIds = userDoc.docs.map(doc => doc.id);
-      
-      // Get posts where:
-      // 1. User is a collaborator (creator or tagged)
-      // 2. Post creator is a friend
-      const postsQuery = query(
-        collection(db, 'posts'),
-        where('collaborators', 'array-contains', { id: auth.currentUser.uid }),
-        orderBy('createdAt', 'desc')
-      );
-      
-      const friendPostsQuery = query(
-        collection(db, 'posts'),
-        where('userId', 'in', friendIds),
-        orderBy('createdAt', 'desc')
-      );
-
-      const [userPosts, friendPosts] = await Promise.all([
-        getDocs(postsQuery),
-        getDocs(friendPostsQuery)
-      ]);
-
-      // Combine and deduplicate posts
-      const allPosts = [...userPosts.docs, ...friendPosts.docs]
-        .map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        }))
-        .filter((post, index, self) => 
-          index === self.findIndex(p => p.id === post.id)
-        )
-        .sort((a, b) => b.createdAt - a.createdAt);
-
-      setPosts(allPosts);
-    } catch (error) {
-      console.error('Error fetching posts:', error);
-    }
-  };
-
   const renderItem = ({ item }) => (
     <View style={styles.postContainer}>
-      <View style={styles.postHeader}>
-        <Text style={styles.username}>{item.username}</Text>
-        {item.collaborators && item.collaborators.length > 1 && (
-          <Text style={styles.collaborators}>
-            with {item.collaborators
-              .filter(c => c.id !== item.userId)
-              .map(c => c.username)
-              .join(', ')}
-          </Text>
-        )}
-      </View>
-      <Image source={{ uri: item.imageUrl }} style={styles.postImage} />
+      <Image source={{ uri: item.imageUrl }} style={styles.image} />
+      <Text style={styles.username}>{item.username || 'Unknown'} - {item.createdAt?.toDate().toLocaleString() || ''}</Text>
       <Text style={styles.caption}>{item.caption}</Text>
+      {item.tags && item.tags.length > 0 && (
+        <Text style={styles.tags}>Tags: {item.tags.join(', ')}</Text>
+      )}
     </View>
   );
 
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Feed</Text>
-      <FlatList
-        data={posts}
-        renderItem={renderItem}
-        keyExtractor={item => item.id}
-        style={styles.feed}
-      />
+      {loading ? <Text>Loading...</Text> : (
+        <FlatList
+          data={posts}
+          keyExtractor={(item) => item.id}
+          renderItem={renderItem}
+          contentContainerStyle={{ paddingBottom: 20 }}
+        />
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    padding: 20,
-    backgroundColor: '#fff'
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 20
-  },
-  feed: {
-    flex: 1
-  },
-  postContainer: {
-    marginBottom: 20,
-    borderRadius: 10,
-    backgroundColor: '#f5f5f5',
-    overflow: 'hidden'
-  },
-  postHeader: {
-    padding: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap'
-  },
-  username: {
-    fontWeight: 'bold',
-    marginRight: 5
-  },
-  collaborators: {
-    color: '#666',
-    flex: 1
-  },
-  postImage: {
-    width: '100%',
-    height: 300,
-    resizeMode: 'cover'
-  },
-  caption: {
-    padding: 10
-  }
+  container: { flex: 1, paddingTop: 50, paddingHorizontal: 20 },
+  title: { fontSize: 24, fontWeight: 'bold', marginBottom: 10, textAlign: 'center' },
+  postContainer: { marginBottom: 20, borderWidth: 1, borderColor: '#ccc', padding: 10, borderRadius: 10 },
+  image: { width: '100%', height: 200, borderRadius: 10 },
+  username: { fontWeight: 'bold', marginTop: 5 },
+  caption: { fontSize: 16, marginTop: 10 },
+  tags: { fontSize: 14, marginTop: 5, color: 'gray' },
 });

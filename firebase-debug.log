@@ -1,0 +1,54 @@
+[debug] [2025-05-31T02:55:29.027Z] ----------------------------------------------------------------------
+[debug] [2025-05-31T02:55:29.035Z] Command:       C:\Program Files\nodejs\node.exe C:\Users\Eric Lai\AppData\Roaming\npm\node_modules\firebase-tools\lib\bin\firebase.js init firestore
+[debug] [2025-05-31T02:55:29.036Z] CLI Version:   14.5.1
+[debug] [2025-05-31T02:55:29.036Z] Platform:      win32
+[debug] [2025-05-31T02:55:29.036Z] Node Version:  v22.16.0
+[debug] [2025-05-31T02:55:29.036Z] Time:          Fri May 30 2025 21:55:29 GMT-0500 (Central Daylight Time)
+[debug] [2025-05-31T02:55:29.036Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2025-05-31T02:55:29.040Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2025-05-31T02:55:29.041Z] > authorizing via signed-in user (ajlai2204@gmail.com)
+[info] 
+     ######## #### ########  ######## ########     ###     ######  ########
+     ##        ##  ##     ## ##       ##     ##  ##   ##  ##       ##
+     ######    ##  ########  ######   ########  #########  ######  ######
+     ##        ##  ##    ##  ##       ##     ## ##     ##       ## ##
+     ##       #### ##     ## ######## ########  ##     ##  ######  ########
+
+You're about to initialize a Firebase project in this directory:
+
+  C:\Users\Eric Lai\cameats
+
+[info] 
+=== Project Setup
+[info] 
+[info] First, let's associate this project directory with a Firebase project.
+[info] You can create multiple project aliases by running firebase use --add, 
+[info] but for now we'll just set up a default project.
+[info] 
+[debug] [2025-05-31T02:56:18.781Z] Checked if tokens are valid: true, expires at: 1748663721318
+[debug] [2025-05-31T02:56:18.781Z] Checked if tokens are valid: true, expires at: 1748663721318
+[debug] [2025-05-31T02:56:18.782Z] >>> [apiv2][query] GET https://firebase.googleapis.com/v1beta1/projects pageSize=100
+[debug] [2025-05-31T02:56:19.056Z] <<< [apiv2][status] GET https://firebase.googleapis.com/v1beta1/projects 200
+[debug] [2025-05-31T02:56:19.057Z] <<< [apiv2][body] GET https://firebase.googleapis.com/v1beta1/projects [omitted]
+[info] i  Using project cameats-a739f (cameats) 
+[info] 
+=== Firestore Setup
+[info] i  firestore: ensuring required API firestore.googleapis.com is enabled... 
+[debug] [2025-05-31T02:56:21.304Z] Checked if tokens are valid: true, expires at: 1748663721318
+[debug] [2025-05-31T02:56:21.304Z] Checked if tokens are valid: true, expires at: 1748663721318
+[debug] [2025-05-31T02:56:21.304Z] >>> [apiv2][query] GET https://serviceusage.googleapis.com/v1/projects/cameats-a739f/services/firestore.googleapis.com [none]
+[debug] [2025-05-31T02:56:21.304Z] >>> [apiv2][(partial)header] GET https://serviceusage.googleapis.com/v1/projects/cameats-a739f/services/firestore.googleapis.com x-goog-quota-user=projects/cameats-a739f
+[debug] [2025-05-31T02:56:21.565Z] <<< [apiv2][status] GET https://serviceusage.googleapis.com/v1/projects/cameats-a739f/services/firestore.googleapis.com 200
+[debug] [2025-05-31T02:56:21.565Z] <<< [apiv2][body] GET https://serviceusage.googleapis.com/v1/projects/cameats-a739f/services/firestore.googleapis.com [omitted]
+[info] +  firestore: required API firestore.googleapis.com is enabled 
+[debug] [2025-05-31T02:56:21.566Z] Checked if tokens are valid: true, expires at: 1748663721318
+[debug] [2025-05-31T02:56:21.566Z] Checked if tokens are valid: true, expires at: 1748663721318
+[debug] [2025-05-31T02:56:21.566Z] >>> [apiv2][query] GET https://firestore.googleapis.com/v1/projects/cameats-a739f/databases [none]
+[debug] [2025-05-31T02:56:21.984Z] <<< [apiv2][status] GET https://firestore.googleapis.com/v1/projects/cameats-a739f/databases 200
+[debug] [2025-05-31T02:56:21.985Z] <<< [apiv2][body] GET https://firestore.googleapis.com/v1/projects/cameats-a739f/databases {"databases":[{"name":"projects/cameats-a739f/databases/(default)","uid":"f329b255-2aae-43a4-be1c-dd2705e7eb91","createTime":"2025-05-24T01:12:18.218758Z","updateTime":"2025-05-24T01:12:18.218758Z","locationId":"nam5","type":"FIRESTORE_NATIVE","concurrencyMode":"PESSIMISTIC","versionRetentionPeriod":"3600s","earliestVersionTime":"2025-05-31T01:56:22.345575Z","appEngineIntegrationMode":"DISABLED","keyPrefix":"s","pointInTimeRecoveryEnablement":"POINT_IN_TIME_RECOVERY_DISABLED","deleteProtectionState":"DELETE_PROTECTION_DISABLED","databaseEdition":"STANDARD","freeTier":true,"etag":"IPW38+fazI0DMLno09L2uo0D"}]}
+[info] 
+[info] Firestore Security Rules allow you to define how and when to allow
+[info] requests. You can keep these rules in your project directory
+[info] and publish them with firebase deploy.
+[info] 

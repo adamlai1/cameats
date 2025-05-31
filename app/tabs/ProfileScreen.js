@@ -1,122 +1,135 @@
 // app/tabs/ProfileScreen.js
 
-import { useRouter } from 'expo-router';
-import { arrayRemove, arrayUnion, collection, doc, getDoc, getDocs, query, updateDoc, where } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, query, updateDoc, where } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
-import { Alert, Button, FlatList, Image, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Button, FlatList, Image, Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { auth, db } from '../../firebase';
 
 export default function ProfileScreen() {
-  const [profile, setProfile] = useState(null);
-  const [posts, setPosts] = useState([]);
-  const [showFriends, setShowFriends] = useState(false);
-  const [friends, setFriends] = useState([]);
+  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
+  const [friendsList, setFriendsList] = useState([]);
   const [friendRequests, setFriendRequests] = useState([]);
-  const router = useRouter();
+  const [friendUsername, setFriendUsername] = useState('');
+  const [posts, setPosts] = useState([]);
+  const [showFriendsList, setShowFriendsList] = useState(false);
 
   useEffect(() => {
     fetchProfile();
-    fetchPosts();
   }, []);
 
   const fetchProfile = async () => {
     try {
       const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
-      if (userDoc.exists()) {
-        const userData = userDoc.data();
-        setProfile(userData);
-
-        // Fetch friends list
-        const friendPromises = (userData.friends || []).map(friendId =>
-          getDoc(doc(db, 'users', friendId))
-        );
-        const friendDocs = await Promise.all(friendPromises);
-        const friendsList = friendDocs
-          .filter(doc => doc.exists())
-          .map(doc => ({
-            id: doc.id,
-            username: doc.data().username
-          }));
-        setFriends(friendsList);
-
-        // Fetch friend requests
-        const requestPromises = (userData.friendRequests || []).map(fromUid =>
-          getDoc(doc(db, 'users', fromUid))
-        );
-        const requestDocs = await Promise.all(requestPromises);
-        const requestsList = requestDocs
-          .filter(doc => doc.exists())
-          .map(doc => ({
-            id: doc.id,
-            username: doc.data().username
-          }));
-        setFriendRequests(requestsList);
+      if (!userDoc.exists()) {
+        console.error('User profile not found');
+        return;
       }
+
+      const userData = userDoc.data();
+      setUsername(userData.username);
+      setEmail(userData.email);
+
+      // Fetch friends' details
+      const friendPromises = (userData.friends || []).map(friendId =>
+        getDoc(doc(db, 'users', friendId))
+      );
+      const friendDocs = await Promise.all(friendPromises);
+      const friends = friendDocs
+        .filter(doc => doc.exists())
+        .map(doc => ({
+          username: doc.data().username,
+          uid: doc.id
+        }));
+      setFriendsList(friends);
+
+      // Fetch friend requests
+      const requestPromises = (userData.friendRequests || []).map(async (requestId) => {
+        const requestDoc = await getDoc(doc(db, 'users', requestId));
+        return {
+          username: requestDoc.data()?.username,
+          uid: requestId
+        };
+      });
+      const requests = await Promise.all(requestPromises);
+      setFriendRequests(requests.filter(r => r.username));
+
+      // Fetch posts
+      const postsQuery = query(
+        collection(db, 'posts'),
+        where('userId', '==', auth.currentUser.uid)
+      );
+      const postsSnapshot = await getDocs(postsQuery);
+      const postsData = postsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setPosts(postsData);
     } catch (error) {
       console.error('Error fetching profile:', error);
     }
   };
 
-  const fetchPosts = async () => {
+  const handleSendFriendRequest = async () => {
     try {
-      // Get posts where user is a collaborator (either creator or tagged)
-      const postsQuery = query(
-        collection(db, 'posts'),
-        where('collaborators', 'array-contains', {
-          id: auth.currentUser.uid,
-          username: profile?.username || 'Unknown'
-        })
-      );
-      
-      const snapshot = await getDocs(postsQuery);
-      const userPosts = snapshot.docs
-        .map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        }))
-        .sort((a, b) => b.createdAt - a.createdAt);
+      const usersRef = collection(db, 'users');
+      const q = query(usersRef, where('username', '==', friendUsername));
+      const querySnapshot = await getDocs(q);
 
-      setPosts(userPosts);
-    } catch (error) {
-      console.error('Error fetching posts:', error);
-    }
-  };
+      if (querySnapshot.empty) {
+        Alert.alert('User not found');
+        return;
+      }
 
-  const handleLogout = async () => {
-    try {
-      await auth.signOut();
-      router.replace('/');
+      const targetUser = querySnapshot.docs[0];
+      if (targetUser.id === auth.currentUser.uid) {
+        Alert.alert('Cannot send friend request to yourself');
+        return;
+      }
+
+      const targetUserData = targetUser.data();
+      if (targetUserData.friendRequests?.includes(auth.currentUser.uid)) {
+        Alert.alert('Friend request already sent');
+        return;
+      }
+
+      if (targetUserData.friends?.includes(auth.currentUser.uid)) {
+        Alert.alert('Already friends with this user');
+        return;
+      }
+
+      await updateDoc(doc(db, 'users', targetUser.id), {
+        friendRequests: [...(targetUserData.friendRequests || []), auth.currentUser.uid]
+      });
+
+      Alert.alert('Friend request sent!');
+      setFriendUsername('');
     } catch (error) {
-      console.error('Error logging out:', error);
+      console.error('Error sending friend request:', error);
       Alert.alert('Error', error.message);
     }
   };
 
   const handleAcceptFriendRequest = async (fromUid) => {
     try {
-      const userRef = doc(db, 'users', auth.currentUser.uid);
-      const friendRef = doc(db, 'users', fromUid);
+      // Update current user's friends list and remove the request
+      const currentUserRef = doc(db, 'users', auth.currentUser.uid);
+      const currentUserDoc = await getDoc(currentUserRef);
+      const currentUserData = currentUserDoc.data();
 
-      await updateDoc(userRef, {
-        friends: arrayUnion(fromUid),
-        friendRequests: arrayRemove(fromUid)
+      await updateDoc(currentUserRef, {
+        friends: [...(currentUserData.friends || []), fromUid],
+        friendRequests: currentUserData.friendRequests.filter(id => id !== fromUid)
       });
 
-      await updateDoc(friendRef, {
-        friends: arrayUnion(auth.currentUser.uid)
-      });
+      // Update the other user's friends list
+      const otherUserRef = doc(db, 'users', fromUid);
+      const otherUserDoc = await getDoc(otherUserRef);
+      const otherUserData = otherUserDoc.data();
 
-      // Update local state
-      setFriendRequests(prev => prev.filter(req => req.id !== fromUid));
-      const friendDoc = await getDoc(friendRef);
-      if (friendDoc.exists()) {
-        setFriends(prev => [...prev, {
-          id: fromUid,
-          username: friendDoc.data().username
-        }]);
-      }
+      await updateDoc(otherUserRef, {
+        friends: [...(otherUserData.friends || []), auth.currentUser.uid]
+      });
 
       Alert.alert('Friend request accepted!');
+      fetchProfile(); // Refresh the profile data
     } catch (error) {
       console.error('Error accepting friend request:', error);
       Alert.alert('Error', error.message);
@@ -125,76 +138,84 @@ export default function ProfileScreen() {
 
   const renderPost = ({ item }) => (
     <View style={styles.postContainer}>
-      <View style={styles.postHeader}>
-        <Text style={styles.username}>{item.username}</Text>
-        {item.collaborators && item.collaborators.length > 1 && (
-          <Text style={styles.collaborators}>
-            with {item.collaborators
-              .filter(c => c.id !== item.userId)
-              .map(c => c.username)
-              .join(', ')}
-          </Text>
-        )}
-      </View>
       <Image source={{ uri: item.imageUrl }} style={styles.postImage} />
-      <Text style={styles.caption}>{item.caption}</Text>
+      <Text style={styles.postCaption}>{item.caption}</Text>
+      {item.tags && item.tags.length > 0 && (
+        <Text style={styles.postTags}>Tags: {item.tags.join(', ')}</Text>
+      )}
     </View>
   );
 
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.username}>{profile?.username || 'Loading...'}</Text>
-        <TouchableOpacity onPress={() => setShowFriends(true)} style={styles.friendsCounter}>
-          <Text style={styles.friendsText}>{friends.length} Friends</Text>
+        <Text style={styles.title}>Your Profile</Text>
+        <Text style={styles.username}>{username}</Text>
+        <Text style={styles.email}>{email}</Text>
+        
+        <TouchableOpacity 
+          style={styles.friendCounter}
+          onPress={() => setShowFriendsList(true)}
+        >
+          <Text style={styles.friendCountText}>
+            {friendsList.length} {friendsList.length === 1 ? 'Friend' : 'Friends'}
+          </Text>
         </TouchableOpacity>
       </View>
 
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={showFriendsList}
+        onRequestClose={() => setShowFriendsList(false)}
+      >
+        <View style={styles.modalView}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Friends List</Text>
+            <FlatList
+              data={friendsList}
+              keyExtractor={(item) => item.uid}
+              renderItem={({ item }) => (
+                <Text style={styles.friendItem}>{item.username}</Text>
+              )}
+              ListEmptyComponent={
+                <Text style={styles.emptyText}>No friends yet</Text>
+              }
+            />
+            <Button title="Close" onPress={() => setShowFriendsList(false)} />
+          </View>
+        </View>
+      </Modal>
+
       {friendRequests.length > 0 && (
         <View style={styles.requestsSection}>
-          <Text style={styles.sectionTitle}>Friend Requests</Text>
-          {friendRequests.map(request => (
-            <View key={request.id} style={styles.requestItem}>
-              <Text>{request.username}</Text>
-              <Button
-                title="Accept"
-                onPress={() => handleAcceptFriendRequest(request.id)}
-              />
+          <Text style={styles.subtitle}>Friend Requests ({friendRequests.length})</Text>
+          {friendRequests.map((request, index) => (
+            <View key={index} style={styles.requestItem}>
+              <Text style={styles.requestUsername}>{request.username}</Text>
+              <Button title="Accept" onPress={() => handleAcceptFriendRequest(request.uid)} />
             </View>
           ))}
         </View>
       )}
 
-      <Modal
-        visible={showFriends}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setShowFriends(false)}
-      >
-        <View style={styles.modalView}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Friends</Text>
-            <FlatList
-              data={friends}
-              keyExtractor={item => item.id}
-              renderItem={({ item }) => (
-                <Text style={styles.friendItem}>{item.username}</Text>
-              )}
-            />
-            <Button title="Close" onPress={() => setShowFriends(false)} />
-          </View>
-        </View>
-      </Modal>
+      <View style={styles.addFriendSection}>
+        <TextInput
+          placeholder="Add friend by username"
+          value={friendUsername}
+          onChangeText={setFriendUsername}
+          style={styles.input}
+        />
+        <Button title="Send Request" onPress={handleSendFriendRequest} />
+      </View>
 
-      <Text style={styles.sectionTitle}>My Posts & Collaborations</Text>
+      <Text style={styles.subtitle}>Your Posts</Text>
       <FlatList
         data={posts}
+        keyExtractor={(item) => item.id}
         renderItem={renderPost}
-        keyExtractor={item => item.id}
-        style={styles.feed}
+        contentContainerStyle={styles.postsContainer}
       />
-
-      <Button title="Logout" onPress={handleLogout} color="red" />
     </View>
   );
 }
@@ -206,27 +227,62 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff'
   },
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 20
   },
-  username: {
+  title: {
     fontSize: 24,
-    fontWeight: 'bold'
+    fontWeight: 'bold',
+    marginBottom: 10
   },
-  friendsCounter: {
-    backgroundColor: '#f0f0f0',
+  username: {
+    fontSize: 18,
+    marginBottom: 5
+  },
+  email: {
+    fontSize: 16,
+    color: '#666',
+    marginBottom: 10
+  },
+  friendCounter: {
+    backgroundColor: '#e1e1e1',
     padding: 10,
-    borderRadius: 20
+    borderRadius: 20,
+    marginTop: 10
   },
-  friendsText: {
+  friendCountText: {
+    fontSize: 16,
     fontWeight: '500'
   },
-  sectionTitle: {
-    fontSize: 18,
+  modalView: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)'
+  },
+  modalContent: {
+    backgroundColor: 'white',
+    borderRadius: 20,
+    padding: 20,
+    width: '80%',
+    maxHeight: '70%'
+  },
+  modalTitle: {
+    fontSize: 20,
     fontWeight: 'bold',
-    marginVertical: 10
+    marginBottom: 15,
+    textAlign: 'center'
+  },
+  friendItem: {
+    fontSize: 16,
+    padding: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee'
+  },
+  emptyText: {
+    textAlign: 'center',
+    color: '#666',
+    padding: 20
   },
   requestsSection: {
     marginBottom: 20
@@ -240,56 +296,44 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     marginVertical: 5
   },
-  modalView: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.5)'
+  requestUsername: {
+    fontSize: 16
   },
-  modalContent: {
-    backgroundColor: 'white',
-    padding: 20,
-    borderRadius: 20,
-    width: '80%',
-    maxHeight: '80%'
+  addFriendSection: {
+    marginBottom: 20
   },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 15,
-    textAlign: 'center'
-  },
-  friendItem: {
+  input: {
+    borderWidth: 1,
+    borderColor: '#ddd',
     padding: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee'
+    borderRadius: 10,
+    marginBottom: 10
   },
-  feed: {
-    flex: 1
+  subtitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 10
+  },
+  postsContainer: {
+    paddingBottom: 20
   },
   postContainer: {
     marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#ddd',
     borderRadius: 10,
-    backgroundColor: '#f5f5f5',
     overflow: 'hidden'
-  },
-  postHeader: {
-    padding: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap'
-  },
-  collaborators: {
-    color: '#666',
-    flex: 1
   },
   postImage: {
     width: '100%',
-    height: 300,
-    resizeMode: 'cover'
+    height: 200
   },
-  caption: {
-    padding: 10
+  postCaption: {
+    padding: 10,
+    fontSize: 16
+  },
+  postTags: {
+    padding: 10,
+    color: '#666'
   }
 });
-
