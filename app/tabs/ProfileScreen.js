@@ -41,6 +41,7 @@ export default function ProfileScreen() {
   const [showFriendsList, setShowFriendsList] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState('grid');
   const [initialScrollIndex, setInitialScrollIndex] = useState(0);
   const [showFriendRequests, setShowFriendRequests] = useState(false);
@@ -52,85 +53,95 @@ export default function ProfileScreen() {
   const flatListRef = useRef(null);
   const swipeableRef = useRef(null);
 
-  useEffect(() => {
-    const fetchProfile = async () => {
-      try {
-        const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
-        if (!userDoc.exists()) {
-          console.error('User profile not found');
-          return;
-        }
-
-        const userData = userDoc.data();
-        setUsername(userData.username);
-        setEmail(userData.email);
-        setDisplayName(userData.displayName || '');
-        setBio(userData.bio || '');
-        setProfilePicUrl(userData.profilePicUrl);
-
-        // Fetch friends' details
-        const friendPromises = (userData.friends || []).map(friendId =>
-          getDoc(doc(db, 'users', friendId))
-        );
-        const friendDocs = await Promise.all(friendPromises);
-        const friendsList = friendDocs
-          .filter(doc => doc.exists())
-          .map(doc => ({
-            id: doc.id,
-            username: doc.data().username,
-            displayName: doc.data().displayName,
-            profilePicUrl: doc.data().profilePicUrl
-          }));
-        setFriendsList(friendsList);
-
-        // Set friend requests
-        setFriendRequests(userData.friendRequests || []);
-
-        // Fetch both user's posts and posts where user is tagged
-        const [ownPostsSnapshot, taggedPostsSnapshot] = await Promise.all([
-          getDocs(query(
-            collection(db, 'posts'),
-            where('userId', '==', auth.currentUser.uid),
-            orderBy('createdAt', 'desc')
-          )),
-          getDocs(query(
-            collection(db, 'posts'),
-            where('taggedFriendIds', 'array-contains', auth.currentUser.uid),
-            orderBy('createdAt', 'desc')
-          ))
-        ]);
-
-        const ownPosts = ownPostsSnapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data(),
-          isOwnPost: true
-        }));
-        
-        const taggedPosts = taggedPostsSnapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data(),
-          isTagged: true
-        }));
-
-        const allPosts = [...ownPosts, ...taggedPosts].sort((a, b) => {
-          const dateA = a.createdAt?.toDate() || new Date(0);
-          const dateB = b.createdAt?.toDate() || new Date(0);
-          return dateB - dateA;
-        });
-
-        setPosts(allPosts);
-      } catch (error) {
-        console.error('Error fetching profile:', error);
+  const fetchProfile = async () => {
+    try {
+      setLoading(true);
+      const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
+      if (!userDoc.exists()) {
+        console.error('User profile not found');
+        return;
       }
-    };
 
+      const userData = userDoc.data();
+      setUsername(userData.username);
+      setEmail(userData.email);
+      setDisplayName(userData.displayName || '');
+      setBio(userData.bio || '');
+      setProfilePicUrl(userData.profilePicUrl);
+
+      // Fetch friends' details
+      const friendPromises = (userData.friends || []).map(friendId =>
+        getDoc(doc(db, 'users', friendId))
+      );
+      const friendDocs = await Promise.all(friendPromises);
+      const friendsList = friendDocs
+        .filter(doc => doc.exists())
+        .map(doc => ({
+          id: doc.id,
+          username: doc.data().username,
+          displayName: doc.data().displayName,
+          profilePicUrl: doc.data().profilePicUrl
+        }));
+      setFriendsList(friendsList);
+
+      // Set friend requests
+      setFriendRequests(userData.friendRequests || []);
+
+      // Fetch all posts and filter for user's posts
+      const postsQuery = query(
+        collection(db, 'posts'),
+        orderBy('createdAt', 'desc')
+      );
+      
+      const snapshot = await getDocs(postsQuery);
+      const allPosts = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+
+      // Filter posts where this user is an owner
+      console.log('Filtering posts for user:', auth.currentUser.uid);
+      const userPosts = allPosts.filter(post => {
+        // Check if user is in postOwners array (new format)
+        const isOwner = post.postOwners?.includes(auth.currentUser.uid);
+        
+        // Check if user is in taggedFriends array (old format)
+        const isTagged = post.taggedFriendIds?.includes(auth.currentUser.uid);
+        
+        // Check if user is the original creator
+        const isCreator = post.userId === auth.currentUser.uid;
+        
+        console.log('Post', post.id, {
+          postOwners: post.postOwners,
+          taggedFriendIds: post.taggedFriendIds,
+          userId: post.userId,
+          isOwner,
+          isTagged,
+          isCreator
+        });
+        
+        // Post should show if user is either an owner, tagged, or creator
+        return isOwner || isTagged || isCreator;
+      });
+      console.log('Filtered posts:', userPosts);
+
+      setPosts(userPosts);
+    } catch (error) {
+      console.error('Error fetching profile:', error);
+      Alert.alert('Error', 'Failed to load profile. Please try again.');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
     fetchProfile();
   }, []);
 
   const onRefresh = async () => {
     setRefreshing(true);
     await fetchProfile();
-    setRefreshing(false);
   };
 
   const handleSearch = async (text) => {
@@ -346,30 +357,28 @@ export default function ProfileScreen() {
     <View style={styles.detailPost}>
       <Image source={{ uri: item.imageUrl }} style={styles.detailImage} />
       <View style={styles.detailContent}>
-        <View style={styles.detailHeader}>
-          <Text style={styles.detailUsername}>{item.username}</Text>
-          <Text style={styles.detailDate}>
-            {item.createdAt?.toDate().toLocaleDateString()}
+        <Text style={styles.postCaption}>{item.caption}</Text>
+        <View style={styles.ownersContainer}>
+          <Text style={styles.ownersLabel}>Posted by: </Text>
+          <Text style={styles.owners}>
+            {item.owners?.map(owner => owner.username).join(', ')}
           </Text>
         </View>
-        {item.caption && (
-          <Text style={styles.detailCaption}>{item.caption}</Text>
-        )}
-        {item.taggedFriends?.length > 0 && (
-          <Text style={styles.detailTags}>
-            With {item.taggedFriends.map(friend => friend.username).join(', ')}
-          </Text>
-        )}
+        <Text style={styles.postDate}>
+          {item.createdAt?.toDate().toLocaleString() || ''}
+        </Text>
       </View>
     </View>
   );
 
   const renderGridPost = ({ item }) => (
-    <TouchableOpacity 
-      style={styles.gridPost}
-      onPress={() => handlePostPress(item)}
-    >
+    <TouchableOpacity onPress={() => handlePostPress(item)}>
       <Image source={{ uri: item.imageUrl }} style={styles.gridImage} />
+      {item.owners?.length > 1 && (
+        <View style={styles.coOwnedBadge}>
+          <Ionicons name="people" size={12} color="#fff" />
+        </View>
+      )}
     </TouchableOpacity>
   );
 
@@ -565,10 +574,37 @@ export default function ProfileScreen() {
     </View>
   );
 
+  const renderContent = () => {
+    if (loading && !refreshing) {
+      return (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" />
+        </View>
+      );
+    }
+
+    return (
+      <FlatList
+        data={posts}
+        renderItem={viewMode === 'grid' ? renderGridPost : renderDetailPost}
+        keyExtractor={item => item.id}
+        numColumns={viewMode === 'grid' ? 3 : 1}
+        key={viewMode} // This forces a re-render when view mode changes
+        ListHeaderComponent={Header}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+          />
+        }
+      />
+    );
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <GestureHandlerRootView style={{ flex: 1 }}>
-        {viewMode === 'grid' ? renderGridView() : renderDetailView()}
+        {renderContent()}
       </GestureHandlerRootView>
 
       {/* Add Friend Modal */}
@@ -1157,6 +1193,46 @@ const styles = StyleSheet.create({
   },
   defaultAvatar: {
     backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  postCaption: {
+    fontSize: 16,
+    marginBottom: 10
+  },
+  ownersContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    marginVertical: 5
+  },
+  ownersLabel: {
+    fontWeight: 'bold',
+    color: '#666',
+    marginRight: 5
+  },
+  owners: {
+    color: '#1976d2',
+    flex: 1
+  },
+  postDate: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 5
+  },
+  coOwnedBadge: {
+    position: 'absolute',
+    top: 5,
+    right: 5,
+    backgroundColor: '#1976d2',
+    borderRadius: 12,
+    width: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  loadingContainer: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center'
   }

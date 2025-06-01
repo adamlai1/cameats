@@ -13,7 +13,7 @@ export default function SignupScreen() {
   const [username, setUsername] = useState('');
   const [displayName, setDisplayName] = useState('');
   const router = useRouter();
-  
+
   const handleSignup = async () => {
     if (!displayName.trim()) {
       Alert.alert('Error', 'Please enter your name');
@@ -108,7 +108,7 @@ export default function SignupScreen() {
       </View>
 
       <View style={styles.buttonContainer}>
-        <Button title="Sign Up" onPress={handleSignup} />
+      <Button title="Sign Up" onPress={handleSignup} />
         <Button title="Already have an account?" onPress={() => router.replace('/login')} />
       </View>
     </View>

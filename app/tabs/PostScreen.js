@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { addDoc, collection, doc, getDoc, serverTimestamp } from 'firebase/firestore';
-import { getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
+import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { useEffect, useState } from 'react';
 import {
   Alert,
@@ -68,16 +68,19 @@ export default function PostScreen() {
 
   const pickImage = async () => {
     let result = await ImagePicker.launchImageLibraryAsync({ 
-      mediaTypes: ImagePicker.MediaTypeOptions.Images, 
-      quality: 0.7 
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.2,  // Reduced quality
+      allowsEditing: true,
+      aspect: [4, 3]
     });
     if (!result.canceled) setImage(result.assets[0].uri);
   };
 
   const takePhoto = async () => {
     let result = await ImagePicker.launchCameraAsync({ 
-      allowsEditing: true, 
-      quality: 0.7 
+      allowsEditing: true,
+      quality: 0.2,  // Reduced quality
+      aspect: [4, 3]
     });
     if (!result.canceled) setImage(result.assets[0].uri);
   };
@@ -98,61 +101,113 @@ export default function PostScreen() {
     setUploading(true);
     setProgress(0);
     try {
+      // Get current user's details first
+      const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
+      if (!userDoc.exists()) {
+        setUploading(false);
+        return Alert.alert('Error', 'User profile not found');
+      }
+      const username = userDoc.data().username;
+
+      // Handle image upload
+      console.log('Fetching image...');
       const response = await fetch(image);
+      console.log('Converting to blob...');
       const blob = await response.blob();
+      console.log('Blob size:', blob.size);
 
       if (blob.size > 10 * 1024 * 1024) {
         setUploading(false);
         return Alert.alert('Error', 'File too large. Max size is 10MB.');
       }
 
-      const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
-      const username = userDoc.exists() ? userDoc.data().username : 'Unknown';
-
-      const filename = `images/${Date.now()}.jpg`;
+      // Create unique filename with user ID
+      const timestamp = Date.now();
+      const filename = `images/${auth.currentUser.uid}_${timestamp}.jpg`;
+      console.log('Creating storage reference:', filename);
       const storageRef = ref(storage, filename);
-      const uploadTask = uploadBytesResumable(storageRef, blob);
 
-      uploadTask.on(
-        'state_changed',
-        (snapshot) => {
-          const progress = snapshot.bytesTransferred / snapshot.totalBytes;
-          setProgress(progress);
-          console.log(`Upload is ${(progress * 100).toFixed(2)}% done`);
-        },
-        (error) => {
-          console.error('Upload failed:', error);
-          Alert.alert('Upload error', error.message);
-          setUploading(false);
-        },
-        async () => {
-          const url = await getDownloadURL(uploadTask.snapshot.ref);
-          await addDoc(collection(db, 'posts'), {
-            imageUrl: url,
-            caption,
-            taggedFriends: selectedFriends.map(friend => ({
-              id: friend.id,
-              username: friend.username
-            })),
-            taggedFriendIds: selectedFriends.map(friend => friend.id),
-            userId: auth.currentUser.uid,
-            username,
-            createdAt: serverTimestamp(),
-          });
+      try {
+        // Upload the blob directly
+        console.log('Starting upload...');
+        await uploadBytes(storageRef, blob);
+        console.log('Upload completed');
 
-          Alert.alert('Post uploaded!');
-          setImage(null);
-          setCaption('');
-          setSelectedFriends([]);
-          setProgress(0);
+        // Get the download URL
+        console.log('Getting download URL...');
+        const url = await getDownloadURL(storageRef);
+        console.log('Got download URL:', url);
+
+        // Create the post
+        console.log('Creating post document...');
+        
+        // Get all owners' user data
+        const ownerPromises = [
+          getDoc(doc(db, 'users', auth.currentUser.uid)),
+          ...selectedFriends.map(friend => getDoc(doc(db, 'users', friend.id)))
+        ];
+        const ownerDocs = await Promise.all(ownerPromises);
+        
+        const owners = ownerDocs
+          .filter(doc => doc.exists())
+          .map(doc => ({
+            id: doc.id,
+            username: doc.data().username,
+            displayName: doc.data().displayName || doc.data().username // Fallback to username if displayName is undefined
+          }));
+
+        // Validate that we have at least the current user as an owner
+        if (!owners.length) {
+          console.error('No valid owners found for post');
           setUploading(false);
-          router.replace('/tabs/FeedScreen');
+          Alert.alert('Error', 'Failed to create post. Please try again.');
+          return;
         }
-      );
+
+        const postData = {
+          imageUrl: url,
+          caption: caption || '', // Ensure caption is never undefined
+          userId: auth.currentUser.uid, // Keep the original creator's ID
+          username: owners.find(owner => owner.id === auth.currentUser.uid)?.username || 'Unknown', // Fallback username
+          owners: owners, // Store full owner info
+          postOwners: owners.map(owner => owner.id), // Keep array of IDs for querying
+          createdAt: serverTimestamp(),
+        };
+        
+        // Validate post data
+        const hasRequiredFields = postData.imageUrl && postData.userId && postData.username && 
+                                Array.isArray(postData.postOwners) && postData.postOwners.length > 0;
+        
+        if (!hasRequiredFields) {
+          console.error('Invalid post data:', postData);
+          setUploading(false);
+          Alert.alert('Error', 'Missing required post information. Please try again.');
+          return;
+        }
+        
+        console.log('Post data:', postData);
+        await addDoc(collection(db, 'posts'), postData);
+
+        Alert.alert('Success', 'Post uploaded successfully!');
+        setImage(null);
+        setCaption('');
+        setSelectedFriends([]);
+        setProgress(0);
+        setUploading(false);
+        router.replace('/tabs/FeedScreen');
+      } catch (uploadError) {
+        console.error('Upload/Post creation error:', uploadError);
+        console.error('Error code:', uploadError.code);
+        console.error('Error message:', uploadError.message);
+        setUploading(false);
+        Alert.alert('Error', 'Failed to upload image. Please check your internet connection and try again.');
+      }
     } catch (error) {
-      console.error('Upload error:', error);
-      Alert.alert('Error uploading post', error.message);
+      console.error('Initial setup error:', error);
+      console.error('Error code:', error.code);
+      console.error('Error message:', error.message);
       setUploading(false);
+      Alert.alert('Error', 'Failed to prepare upload. Please try again.');
     }
   };
 
@@ -163,14 +218,14 @@ export default function PostScreen() {
         style={styles.container}
       >
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-          <View style={styles.container}>
+    <View style={styles.container}>
             <View style={styles.scrollContainer}>
-              <Text style={styles.title}>Create a Post</Text>
+      <Text style={styles.title}>Create a Post</Text>
               
               <View style={styles.imageSection}>
                 <View style={styles.buttonContainer}>
-                  <Button title="Take a Photo" onPress={takePhoto} />
-                  <Button title="Pick an Image" onPress={pickImage} />
+      <Button title="Take a Photo" onPress={takePhoto} />
+      <Button title="Pick an Image" onPress={pickImage} />
                 </View>
                 {image && (
                   <View style={styles.imageContainer}>
@@ -185,9 +240,9 @@ export default function PostScreen() {
                 )}
               </View>
 
-              {uploading && (
+      {uploading && (
                 <Progress.Bar progress={progress} width={200} style={styles.progressBar} />
-              )}
+      )}
 
               <TextInput 
                 placeholder="Add a caption..." 
@@ -200,7 +255,7 @@ export default function PostScreen() {
               <View style={styles.friendsSection}>
                 <Text style={styles.subtitle}>Tag Friends:</Text>
                 {friends.length > 0 ? (
-                  <FlatList
+      <FlatList
                     data={friends}
                     keyExtractor={(item) => item.id}
                     renderItem={({ item }) => (
