@@ -4,15 +4,15 @@ import { Ionicons } from '@expo/vector-icons';
 import { collection, doc, getDoc, getDocs, orderBy, query } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
-  FlatList,
-  Image,
-  RefreshControl,
-  SafeAreaView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View
+    ActivityIndicator,
+    FlatList,
+    Image,
+    RefreshControl,
+    SafeAreaView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View
 } from 'react-native';
 import { auth, db } from '../../firebase';
 
@@ -33,7 +33,6 @@ export default function FeedScreen() {
 
       const friends = userDoc.data().friends || [];
       const relevantUserIds = [auth.currentUser.uid, ...friends];
-      console.log('Relevant user IDs:', relevantUserIds);
 
       // Get all posts and filter client-side
       const postsQuery = query(
@@ -46,7 +45,6 @@ export default function FeedScreen() {
         id: doc.id,
         ...doc.data()
       }));
-      console.log('All posts:', allPosts);
 
       // Filter posts that are relevant to the user (created by friends or self)
       const filteredPosts = allPosts.filter(post => {
@@ -63,20 +61,9 @@ export default function FeedScreen() {
 
         const isRelevant = isRelevantPostOwner || isRelevantTagged || isRelevantCreator;
 
-        console.log('Post', post.id, {
-          postOwners: post.postOwners,
-          taggedFriendIds: post.taggedFriendIds,
-          userId: post.userId,
-          isRelevantPostOwner,
-          isRelevantTagged,
-          isRelevantCreator,
-          isRelevant
-        });
-
         return isRelevant;
       });
 
-      console.log('Filtered posts:', filteredPosts);
       setPosts(filteredPosts);
     } catch (error) {
       console.error('Error fetching posts:', error);
@@ -96,7 +83,9 @@ export default function FeedScreen() {
   const renderDetailPost = ({ item }) => (
     <View style={styles.postContainer}>
       <View style={styles.postHeader}>
-        <Text style={styles.username}>{item.username}</Text>
+        <Text style={styles.username}>
+          {item.owners?.map(owner => owner.username).join(' • ')}
+        </Text>
       </View>
       <Image 
         source={{ uri: item.imageUrl }} 
@@ -105,20 +94,9 @@ export default function FeedScreen() {
       />
       <View style={styles.postFooter}>
         <Text style={styles.caption}>{item.caption}</Text>
-        {item.postOwners?.length > 1 ? (
-          <Text style={styles.coOwners}>
-            Co-owned with: {item.owners
-              ?.filter(owner => owner.id !== item.userId)
-              ?.map(owner => owner.username)
-              ?.join(', ') || 'others'}
-          </Text>
-        ) : item.taggedFriendIds?.length > 0 ? (
-          <Text style={styles.coOwners}>
-            Tagged: {item.taggedFriends
-              ?.map(friend => friend.username)
-              ?.join(', ') || 'others'}
-          </Text>
-        ) : null}
+        <Text style={styles.postDate}>
+          {item.createdAt?.toDate().toLocaleString() || ''}
+        </Text>
       </View>
     </View>
   );
@@ -129,7 +107,7 @@ export default function FeedScreen() {
       onPress={() => setViewMode('detail')}
     >
       <Image source={{ uri: item.imageUrl }} style={styles.gridImage} />
-      {(item.postOwners?.length > 1 || item.taggedFriendIds?.length > 0) && (
+      {item.owners?.length > 1 && (
         <View style={styles.coOwnedBadge}>
           <Ionicons name="people" size={12} color="white" />
         </View>
@@ -230,11 +208,14 @@ const styles = StyleSheet.create({
   postHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 10
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee'
   },
   username: {
-    fontWeight: 'bold',
-    fontSize: 16
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#1976d2'
   },
   postImage: {
     width: '100%',
@@ -248,10 +229,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginBottom: 5
   },
-  coOwners: {
+  postDate: {
     fontSize: 12,
     color: '#666',
-    fontStyle: 'italic'
+    marginTop: 8
   },
   gridItem: {
     flex: 1/3,

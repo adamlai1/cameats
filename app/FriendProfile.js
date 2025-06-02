@@ -1,10 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { collection, doc, getDoc, getDocs, orderBy, query, where } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, orderBy, query } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
 import {
+    ActivityIndicator,
     FlatList,
     Image,
+    RefreshControl,
     SafeAreaView,
     StyleSheet,
     Text,
@@ -19,119 +21,190 @@ export default function FriendProfile() {
   const [profile, setProfile] = useState(null);
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'detail'
+
+  const fetchFriendProfile = async () => {
+    try {
+      const userDoc = await getDoc(doc(db, 'users', userId));
+      if (!userDoc.exists()) {
+        console.error('User profile not found');
+        return;
+      }
+
+      const userData = userDoc.data();
+      setProfile({
+        id: userDoc.id,
+        ...userData
+      });
+
+      // Fetch all posts and filter client-side
+      const postsQuery = query(
+        collection(db, 'posts'),
+        orderBy('createdAt', 'desc')
+      );
+      
+      const snapshot = await getDocs(postsQuery);
+      const allPosts = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+
+      // Filter posts where this user is either an owner or creator
+      const userPosts = allPosts.filter(post => {
+        const isOwner = post.postOwners?.includes(userId);
+        const isCreator = post.userId === userId;
+        return isOwner || isCreator;
+      });
+
+      setPosts(userPosts);
+    } catch (error) {
+      console.error('Error fetching friend profile:', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchFriendProfile = async () => {
-      try {
-        const userDoc = await getDoc(doc(db, 'users', userId));
-        if (!userDoc.exists()) {
-          console.error('User profile not found');
-          return;
-        }
-
-        const userData = userDoc.data();
-        setProfile({
-          id: userDoc.id,
-          ...userData
-        });
-
-        // Fetch user's posts
-        const [ownPostsSnapshot, taggedPostsSnapshot] = await Promise.all([
-          getDocs(query(
-            collection(db, 'posts'),
-            where('userId', '==', userId),
-            orderBy('createdAt', 'desc')
-          )),
-          getDocs(query(
-            collection(db, 'posts'),
-            where('taggedFriendIds', 'array-contains', userId),
-            orderBy('createdAt', 'desc')
-          ))
-        ]);
-
-        const ownPosts = ownPostsSnapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data(),
-          isOwnPost: true
-        }));
-        
-        const taggedPosts = taggedPostsSnapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data(),
-          isTagged: true
-        }));
-
-        const allPosts = [...ownPosts, ...taggedPosts].sort((a, b) => {
-          const dateA = a.createdAt?.toDate() || new Date(0);
-          const dateB = b.createdAt?.toDate() || new Date(0);
-          return dateB - dateA;
-        });
-
-        setPosts(allPosts);
-        setLoading(false);
-      } catch (error) {
-        console.error('Error fetching friend profile:', error);
-        setLoading(false);
-      }
-    };
-
     fetchFriendProfile();
   }, [userId]);
 
-  const renderPost = ({ item }) => (
-    <View style={styles.postContainer}>
-      <Image source={{ uri: item.imageUrl }} style={styles.postImage} />
-      <Text style={styles.postCaption}>{item.caption}</Text>
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await fetchFriendProfile();
+  };
+
+  const handlePostPress = (post) => {
+    setViewMode('detail');
+  };
+
+  const renderDetailPost = ({ item }) => (
+    <View style={styles.detailPost}>
+      <View style={styles.postHeader}>
+        <Text style={styles.postOwners}>
+          {item.owners?.map(owner => owner.username).join(' • ')}
+        </Text>
+      </View>
+      <Image source={{ uri: item.imageUrl }} style={styles.detailImage} />
+      <View style={styles.postContent}>
+        <Text style={styles.postCaption}>{item.caption}</Text>
+        <Text style={styles.postDate}>
+          {item.createdAt?.toDate().toLocaleString() || ''}
+        </Text>
+      </View>
     </View>
   );
 
-  if (loading || !profile) {
+  const renderGridPost = ({ item }) => (
+    <TouchableOpacity onPress={() => handlePostPress(item)}>
+      <Image source={{ uri: item.imageUrl }} style={styles.gridImage} />
+      {item.owners?.length > 1 && (
+        <View style={styles.coOwnedBadge}>
+          <Ionicons name="people" size={12} color="#fff" />
+        </View>
+      )}
+    </TouchableOpacity>
+  );
+
+  const Header = () => (
+    <View style={styles.header}>
+      {viewMode === 'detail' && (
+        <TouchableOpacity 
+          style={styles.backToGridButton}
+          onPress={() => setViewMode('grid')}
+        >
+          <Ionicons name="arrow-back" size={24} color="black" />
+          <Text style={styles.backButtonText}>Back to Grid</Text>
+        </TouchableOpacity>
+      )}
+      
+      <View style={styles.headerTop}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+          <Ionicons name="arrow-back" size={24} color="#000" />
+        </TouchableOpacity>
+        <Text style={styles.username}>@{profile?.username}</Text>
+        <View style={styles.headerRight} />
+      </View>
+
+      <View style={styles.profileInfo}>
+        <View style={styles.profilePicContainer}>
+          <View style={styles.profilePic}>
+            {profile?.profilePicUrl ? (
+              <Image 
+                source={{ uri: profile.profilePicUrl }} 
+                style={styles.profilePicImage} 
+              />
+            ) : (
+              <View style={[styles.profilePic, styles.defaultProfilePic]}>
+                <Ionicons name="person" size={40} color="#666" />
+              </View>
+            )}
+          </View>
+        </View>
+
+        <View style={styles.statsContainer}>
+          <View style={styles.statItem}>
+            <Text style={styles.statNumber}>{posts.length}</Text>
+            <Text style={styles.statLabel}>Meals</Text>
+          </View>
+          <View style={styles.statItem}>
+            <Text style={styles.statNumber}>{profile?.friends?.length || 0}</Text>
+            <Text style={styles.statLabel}>Friends</Text>
+          </View>
+        </View>
+      </View>
+
+      <View style={styles.bioContainer}>
+        {profile?.displayName && (
+          <Text style={styles.displayName}>{profile.displayName}</Text>
+        )}
+        {profile?.bio ? (
+          <Text style={styles.bio}>{profile.bio}</Text>
+        ) : (
+          <Text style={styles.noBio}>No bio yet</Text>
+        )}
+      </View>
+
+      <TouchableOpacity 
+        style={styles.viewModeButton}
+        onPress={() => setViewMode(prev => prev === 'grid' ? 'detail' : 'grid')}
+      >
+        <Ionicons 
+          name={viewMode === 'grid' ? 'list-outline' : 'grid-outline'} 
+          size={24} 
+          color="#1976d2" 
+        />
+      </TouchableOpacity>
+    </View>
+  );
+
+  if (loading && !refreshing) {
     return (
       <SafeAreaView style={styles.container}>
-        <Text>Loading...</Text>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#1976d2" />
+        </View>
       </SafeAreaView>
     );
   }
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color="#000" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>@{profile.username}</Text>
-        <View style={styles.headerRight} />
-      </View>
-
       <FlatList
         data={posts}
-        renderItem={renderPost}
-        keyExtractor={(item) => item.id}
-        ListHeaderComponent={() => (
-          <View style={styles.profileHeader}>
-            {profile.profilePicUrl ? (
-              <Image source={{ uri: profile.profilePicUrl }} style={styles.profilePic} />
-            ) : (
-              <View style={[styles.profilePic, styles.defaultProfilePic]}>
-                <Ionicons name="person" size={40} color="#666" />
-              </View>
-            )}
-            <Text style={styles.displayName}>{profile.displayName || profile.username}</Text>
-            <Text style={styles.username}>@{profile.username}</Text>
-            {profile.bio && <Text style={styles.bio}>{profile.bio}</Text>}
-
-            <View style={styles.stats}>
-              <View style={styles.statItem}>
-                <Text style={styles.statNumber}>{posts.filter(p => p.isOwnPost).length}</Text>
-                <Text style={styles.statLabel}>Posts</Text>
-              </View>
-              <View style={styles.statItem}>
-                <Text style={styles.statNumber}>{profile.friends?.length || 0}</Text>
-                <Text style={styles.statLabel}>Friends</Text>
-              </View>
-            </View>
-          </View>
-        )}
+        renderItem={viewMode === 'grid' ? renderGridPost : renderDetailPost}
+        keyExtractor={item => item.id}
+        numColumns={viewMode === 'grid' ? 3 : 1}
+        key={viewMode}
+        ListHeaderComponent={Header}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor="#1976d2"
+          />
+        }
       />
     </SafeAreaView>
   );
@@ -142,63 +215,61 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#fff'
   },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
   header: {
+    padding: 15
+  },
+  headerTop: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 15,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee'
+    alignItems: 'center',
+    marginBottom: 15
   },
   backButton: {
     padding: 5
   },
-  headerTitle: {
-    fontSize: 16,
-    fontWeight: '600'
-  },
   headerRight: {
     width: 34 // Same width as back button for centering
   },
-  profileHeader: {
+  username: {
+    fontSize: 20,
+    fontWeight: 'bold'
+  },
+  profileInfo: {
+    flexDirection: 'row',
     alignItems: 'center',
-    padding: 20
+    marginBottom: 15
+  },
+  profilePicContainer: {
+    marginRight: 30
   },
   profilePic: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    marginBottom: 15
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden'
+  },
+  profilePicImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover'
   },
   defaultProfilePic: {
     backgroundColor: '#f0f0f0',
     justifyContent: 'center',
     alignItems: 'center'
   },
-  displayName: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 5
-  },
-  username: {
-    fontSize: 16,
-    color: '#666',
-    marginBottom: 15
-  },
-  bio: {
-    fontSize: 16,
-    textAlign: 'center',
-    marginBottom: 15,
-    paddingHorizontal: 20
-  },
-  stats: {
+  statsContainer: {
+    flex: 1,
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    width: '100%',
-    paddingVertical: 15,
-    borderTopWidth: 1,
-    borderTopColor: '#eee'
+    justifyContent: 'space-around'
   },
   statItem: {
     alignItems: 'center'
@@ -208,19 +279,100 @@ const styles = StyleSheet.create({
     fontWeight: 'bold'
   },
   statLabel: {
-    fontSize: 14,
     color: '#666'
   },
-  postContainer: {
-    marginBottom: 15
+  bioContainer: {
+    paddingHorizontal: 15,
+    marginTop: 10
   },
-  postImage: {
+  displayName: {
+    fontWeight: 'bold',
+    fontSize: 16,
+    marginBottom: 4
+  },
+  bio: {
+    fontSize: 14,
+    color: '#262626',
+    lineHeight: 20
+  },
+  noBio: {
+    fontSize: 14,
+    color: '#666',
+    fontStyle: 'italic'
+  },
+  viewModeButton: {
+    alignSelf: 'flex-end',
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: '#f5f5f5',
+    marginTop: 10
+  },
+  backToGridButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 10,
+    marginBottom: 10
+  },
+  backButtonText: {
+    marginLeft: 8,
+    fontSize: 16,
+    color: 'black'
+  },
+  detailPost: {
+    marginBottom: 20,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3
+  },
+  detailImage: {
     width: '100%',
-    height: 300,
+    height: 400,
     resizeMode: 'cover'
   },
+  postHeader: {
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee'
+  },
+  postOwners: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#1976d2'
+  },
+  postContent: {
+    padding: 15
+  },
   postCaption: {
-    padding: 15,
-    fontSize: 14
+    fontSize: 14,
+    marginBottom: 10
+  },
+  postDate: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 5
+  },
+  gridImage: {
+    width: 120,
+    height: 120,
+    margin: 1
+  },
+  coOwnedBadge: {
+    position: 'absolute',
+    top: 5,
+    right: 5,
+    backgroundColor: 'rgba(25, 118, 210, 0.8)',
+    borderRadius: 12,
+    width: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center'
   }
 }); 

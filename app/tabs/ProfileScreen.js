@@ -2,9 +2,9 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { useRouter } from 'expo-router';
-import { arrayUnion, collection, doc, getDoc, getDocs, limit, orderBy, query, updateDoc, where } from 'firebase/firestore';
-import { getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
+import { usePathname, useRouter } from 'expo-router';
+import { arrayUnion, collection, deleteDoc, doc, getDoc, getDocs, limit, orderBy, query, updateDoc, where } from 'firebase/firestore';
+import { deleteObject, getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
 import { useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
@@ -23,7 +23,7 @@ import {
     View
 } from 'react-native';
 import { GestureHandlerRootView, PanGestureHandler } from 'react-native-gesture-handler';
-import { auth, db } from '../../firebase';
+import { auth, db, storage } from '../../firebase';
 
 const WINDOW_WIDTH = Dimensions.get('window').width;
 const POST_WIDTH = WINDOW_WIDTH / 3;
@@ -53,6 +53,15 @@ export default function ProfileScreen() {
   const flatListRef = useRef(null);
   const swipeableRef = useRef(null);
 
+  // Add this effect to handle tab press
+  const pathname = usePathname();
+  useEffect(() => {
+    if (pathname === '/tabs/ProfileScreen') {
+      setViewMode('grid');
+      setInitialScrollIndex(0);
+    }
+  }, [pathname]);
+
   const fetchProfile = async () => {
     try {
       setLoading(true);
@@ -75,7 +84,7 @@ export default function ProfileScreen() {
       );
       const friendDocs = await Promise.all(friendPromises);
       const friendsList = friendDocs
-        .filter(doc => doc.exists())
+              .filter(doc => doc.exists())
         .map(doc => ({
           id: doc.id,
           username: doc.data().username,
@@ -100,7 +109,6 @@ export default function ProfileScreen() {
       }));
 
       // Filter posts where this user is an owner
-      console.log('Filtering posts for user:', auth.currentUser.uid);
       const userPosts = allPosts.filter(post => {
         // Check if user is in postOwners array (new format)
         const isOwner = post.postOwners?.includes(auth.currentUser.uid);
@@ -111,19 +119,9 @@ export default function ProfileScreen() {
         // Check if user is the original creator
         const isCreator = post.userId === auth.currentUser.uid;
         
-        console.log('Post', post.id, {
-          postOwners: post.postOwners,
-          taggedFriendIds: post.taggedFriendIds,
-          userId: post.userId,
-          isOwner,
-          isTagged,
-          isCreator
-        });
-        
         // Post should show if user is either an owner, tagged, or creator
         return isOwner || isTagged || isCreator;
       });
-      console.log('Filtered posts:', userPosts);
 
       setPosts(userPosts);
     } catch (error) {
@@ -353,17 +351,68 @@ export default function ProfileScreen() {
     setViewMode('detail');
   };
 
+  const handleDeletePost = async (post) => {
+    // Only allow deletion if user is the creator
+    if (post.userId !== auth.currentUser.uid) {
+      Alert.alert('Cannot Delete', 'You can only delete posts that you created.');
+      return;
+    }
+
+    Alert.alert(
+      'Delete Post',
+      'Are you sure you want to delete this post? This action cannot be undone.',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel'
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              // Delete the image from storage
+              if (post.imageUrl) {
+                const imageRef = ref(storage, post.imageUrl);
+                await deleteObject(imageRef).catch(error => {
+                  console.log('Image might have already been deleted:', error);
+                });
+              }
+
+              // Delete the post document
+              await deleteDoc(doc(db, 'posts', post.id));
+
+              // Update local state
+              setPosts(currentPosts => currentPosts.filter(p => p.id !== post.id));
+              Alert.alert('Success', 'Post deleted successfully');
+            } catch (error) {
+              console.error('Error deleting post:', error);
+              Alert.alert('Error', 'Failed to delete post. Please try again.');
+            }
+          }
+        }
+      ]
+    );
+  };
+
   const renderDetailPost = ({ item }) => (
     <View style={styles.detailPost}>
+      <View style={styles.postHeader}>
+        <Text style={styles.postOwners}>
+          {item.owners?.map(owner => owner.username).join(' • ')}
+        </Text>
+        {item.userId === auth.currentUser.uid && (
+          <TouchableOpacity 
+            onPress={() => handleDeletePost(item)}
+            style={styles.deleteButton}
+          >
+            <Ionicons name="trash-outline" size={20} color="#ff3b30" />
+          </TouchableOpacity>
+        )}
+      </View>
       <Image source={{ uri: item.imageUrl }} style={styles.detailImage} />
       <View style={styles.detailContent}>
         <Text style={styles.postCaption}>{item.caption}</Text>
-        <View style={styles.ownersContainer}>
-          <Text style={styles.ownersLabel}>Posted by: </Text>
-          <Text style={styles.owners}>
-            {item.owners?.map(owner => owner.username).join(', ')}
-          </Text>
-        </View>
         <Text style={styles.postDate}>
           {item.createdAt?.toDate().toLocaleString() || ''}
         </Text>
@@ -378,6 +427,14 @@ export default function ProfileScreen() {
         <View style={styles.coOwnedBadge}>
           <Ionicons name="people" size={12} color="#fff" />
         </View>
+      )}
+      {item.userId === auth.currentUser.uid && (
+        <TouchableOpacity 
+          onPress={() => handleDeletePost(item)}
+          style={styles.gridDeleteButton}
+        >
+          <Ionicons name="trash-outline" size={16} color="#fff" />
+        </TouchableOpacity>
       )}
     </TouchableOpacity>
   );
@@ -480,60 +537,11 @@ export default function ProfileScreen() {
 
   const onGestureEvent = (event) => {
     const { translationX } = event.nativeEvent;
-    if (translationX > 50 && viewMode === 'detail') { // Threshold of 50px
+    if (translationX > 50 && viewMode === 'detail') {
       setViewMode('grid');
       setInitialScrollIndex(0);
     }
   };
-
-  const renderDetailView = () => (
-    <PanGestureHandler
-      onGestureEvent={onGestureEvent}
-      activeOffsetX={[-20, 20]} // Detect swipes in both directions after 20px
-    >
-      <View style={{ flex: 1 }}>
-        <FlatList
-          data={posts}
-          renderItem={renderDetailPost}
-          keyExtractor={item => item.id}
-          ListHeaderComponent={Header}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-          }
-          contentContainerStyle={styles.detailContainer}
-          initialScrollIndex={initialScrollIndex}
-          getItemLayout={(data, index) => ({
-            length: 500,
-            offset: index * 500,
-            index,
-          })}
-          onScrollToIndexFailed={info => {
-            const wait = new Promise(resolve => setTimeout(resolve, 500));
-            wait.then(() => {
-              flatListRef.current?.scrollToIndex({ 
-                index: initialScrollIndex,
-                animated: true
-              });
-            });
-          }}
-          ref={flatListRef}
-        />
-      </View>
-    </PanGestureHandler>
-  );
-
-  const renderGridView = () => (
-    <FlatList
-      data={posts}
-      renderItem={renderGridPost}
-      keyExtractor={item => item.id}
-      numColumns={3}
-      ListHeaderComponent={Header}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-      }
-    />
-  );
 
   const FriendsList = () => (
     <View style={styles.friendsContainer}>
@@ -583,13 +591,57 @@ export default function ProfileScreen() {
       );
     }
 
+    if (viewMode === 'detail') {
+      return (
+        <PanGestureHandler
+          onGestureEvent={onGestureEvent}
+          activeOffsetX={[-20, 20]} // First value must be negative, second positive
+        >
+          <View style={{ flex: 1 }}>
+            <FlatList
+              key="detail"
+              ref={flatListRef}
+              data={posts}
+              renderItem={renderDetailPost}
+              keyExtractor={item => item.id}
+              ListHeaderComponent={Header}
+              refreshControl={
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={onRefresh}
+                />
+              }
+              initialScrollIndex={initialScrollIndex}
+              onScrollToIndexFailed={info => {
+                const wait = new Promise(resolve => setTimeout(resolve, 500));
+                wait.then(() => {
+                  if (flatListRef.current) {
+                    flatListRef.current.scrollToIndex({
+                      index: initialScrollIndex,
+                      animated: true,
+                      viewPosition: 0
+                    });
+                  }
+                });
+              }}
+              getItemLayout={(data, index) => ({
+                length: 550, // Approximate height of each post
+                offset: 550 * index,
+                index,
+              })}
+            />
+          </View>
+        </PanGestureHandler>
+      );
+    }
+
     return (
       <FlatList
+        key="grid"
         data={posts}
-        renderItem={viewMode === 'grid' ? renderGridPost : renderDetailPost}
+        renderItem={renderGridPost}
         keyExtractor={item => item.id}
-        numColumns={viewMode === 'grid' ? 3 : 1}
-        key={viewMode} // This forces a re-render when view mode changes
+        numColumns={3}
         ListHeaderComponent={Header}
         refreshControl={
           <RefreshControl
@@ -1233,6 +1285,30 @@ const styles = StyleSheet.create({
   },
   loadingContainer: {
     flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  postHeader: {
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee'
+  },
+  postOwners: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#1976d2'
+  },
+  deleteButton: {
+    padding: 8,
+  },
+  gridDeleteButton: {
+    position: 'absolute',
+    top: 5,
+    right: 5,
+    backgroundColor: 'rgba(255, 59, 48, 0.8)',
+    borderRadius: 12,
+    width: 24,
+    height: 24,
     justifyContent: 'center',
     alignItems: 'center'
   }
