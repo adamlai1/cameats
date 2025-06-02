@@ -8,7 +8,6 @@ import {
     Dimensions,
     FlatList,
     Image,
-    Keyboard,
     KeyboardAvoidingView,
     Platform,
     SafeAreaView,
@@ -16,7 +15,6 @@ import {
     Text,
     TextInput,
     TouchableOpacity,
-    TouchableWithoutFeedback,
     View
 } from 'react-native';
 import * as Progress from 'react-native-progress';
@@ -165,28 +163,32 @@ export default function PostDetails() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView 
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.container}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
       >
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-          <View style={styles.container}>
-            <View style={styles.header}>
-              <TouchableOpacity onPress={() => router.back()}>
-                <Ionicons name="arrow-back" size={24} color="#000" />
-              </TouchableOpacity>
-              <Text style={styles.headerTitle}>New Post</Text>
-              <TouchableOpacity 
-                onPress={uploadPost}
-                disabled={uploading}
-                style={[styles.postButton, uploading && styles.disabledButton]}
-              >
-                <Text style={styles.postButtonText}>
-                  {uploading ? 'Posting...' : 'Post'}
-                </Text>
-              </TouchableOpacity>
-            </View>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()}>
+            <Ionicons name="arrow-back" size={24} color="#000" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>New Post</Text>
+          <TouchableOpacity 
+            onPress={uploadPost}
+            disabled={uploading}
+            style={[styles.postButton, uploading && styles.disabledButton]}
+          >
+            <Text style={styles.postButtonText}>
+              {uploading ? 'Posting...' : 'Post'}
+            </Text>
+          </TouchableOpacity>
+        </View>
 
-            <View style={styles.content}>
+        <FlatList
+          style={styles.content}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          ListHeaderComponent={() => (
+            <>
               <View style={styles.imageGalleryContainer}>
                 <FlatList
                   data={images}
@@ -215,53 +217,53 @@ export default function PostDetails() {
                 )}
               </View>
               
-              <TextInput
-                placeholder="Write a caption..."
-                value={caption}
-                onChangeText={setCaption}
-                style={styles.captionInput}
-                multiline
-              />
-
-              <View style={styles.friendsSection}>
-                <Text style={styles.sectionTitle}>Tag Friends</Text>
-                {friends.length > 0 ? (
-                  <FlatList
-                    data={friends}
-                    keyExtractor={(item) => item.id}
-                    renderItem={({ item }) => (
-                      <TouchableOpacity
-                        style={[
-                          styles.friendItem,
-                          selectedFriends.some(f => f.id === item.id) && styles.selectedFriend
-                        ]}
-                        onPress={() => toggleFriend(item)}
-                      >
-                        <Text style={styles.friendName}>{item.username}</Text>
-                        {selectedFriends.some(f => f.id === item.id) && (
-                          <Ionicons name="checkmark-circle" size={24} color="#007AFF" />
-                        )}
-                      </TouchableOpacity>
-                    )}
-                  />
-                ) : (
-                  <Text style={styles.noFriendsText}>
-                    Add some friends to tag them in your posts!
-                  </Text>
-                )}
+              <View style={styles.captionContainer}>
+                <TextInput
+                  placeholder="Write a caption..."
+                  value={caption}
+                  onChangeText={setCaption}
+                  style={styles.captionInput}
+                  multiline
+                  autoFocus
+                  maxLength={2200}
+                />
               </View>
 
-              {uploading && (
-                <View style={styles.progressContainer}>
-                  <Progress.Bar progress={progress} width={200} />
-                  <Text style={styles.progressText}>
-                    Uploading {Math.round(progress * 100)}%
-                  </Text>
-                </View>
+              <Text style={styles.sectionTitle}>Tag Friends</Text>
+            </>
+          )}
+          data={friends}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => (
+            <TouchableOpacity
+              style={[
+                styles.friendItem,
+                selectedFriends.some(f => f.id === item.id) && styles.selectedFriend
+              ]}
+              onPress={() => toggleFriend(item)}
+            >
+              <Text style={styles.friendName}>{item.username}</Text>
+              {selectedFriends.some(f => f.id === item.id) && (
+                <Ionicons name="checkmark-circle" size={24} color="#007AFF" />
               )}
-            </View>
+            </TouchableOpacity>
+          )}
+          ListEmptyComponent={() => (
+            <Text style={styles.noFriendsText}>
+              Add some friends to tag them in your posts!
+            </Text>
+          )}
+          contentContainerStyle={styles.friendsListContainer}
+        />
+
+        {uploading && (
+          <View style={styles.progressContainer}>
+            <Progress.Bar progress={progress} width={200} />
+            <Text style={styles.progressText}>
+              Uploading {Math.round(progress * 100)}%
+            </Text>
           </View>
-        </TouchableWithoutFeedback>
+        )}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -301,7 +303,8 @@ const styles = StyleSheet.create({
     fontWeight: '600'
   },
   content: {
-    flex: 1
+    flex: 1,
+    backgroundColor: '#fff'
   },
   imageGalleryContainer: {
     width: '100%',
@@ -333,19 +336,26 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
   },
-  captionInput: {
-    padding: 16,
-    fontSize: 16,
-    maxHeight: 100
+  captionContainer: {
+    backgroundColor: '#f8f8f8',
+    marginVertical: 10,
+    marginHorizontal: 16,
+    borderRadius: 8,
+    padding: 8
   },
-  friendsSection: {
-    flex: 1,
-    padding: 16
+  captionInput: {
+    fontSize: 16,
+    minHeight: 100,
+    maxHeight: 200,
+    textAlignVertical: 'top',
+    padding: 8
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: '600',
-    marginBottom: 16
+    marginBottom: 16,
+    marginHorizontal: 16,
+    marginTop: 10
   },
   friendItem: {
     flexDirection: 'row',
@@ -380,5 +390,9 @@ const styles = StyleSheet.create({
   progressText: {
     color: '#fff',
     marginTop: 10
+  },
+  friendsListContainer: {
+    paddingHorizontal: 16,
+    paddingBottom: Platform.OS === 'ios' ? 120 : 90 // Adjusted padding for keyboard
   }
 }); 

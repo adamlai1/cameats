@@ -318,7 +318,8 @@ export default function ProfileScreen() {
         return;
       }
 
-      const filename = `profile_pictures/${auth.currentUser.uid}_${Date.now()}.jpg`;
+      // Update path to match security rules structure
+      const filename = `profile_pictures/${auth.currentUser.uid}/${Date.now()}.jpg`;
       const storageRef = ref(storage, filename);
       const uploadTask = uploadBytesResumable(storageRef, blob);
 
