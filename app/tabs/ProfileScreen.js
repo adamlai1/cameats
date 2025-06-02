@@ -44,6 +44,7 @@ export default function ProfileScreen() {
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState('grid');
   const [initialScrollIndex, setInitialScrollIndex] = useState(0);
+  const [currentImageIndices, setCurrentImageIndices] = useState({});
   const [showFriendRequests, setShowFriendRequests] = useState(false);
   const [showAddFriend, setShowAddFriend] = useState(false);
   const [searchUsername, setSearchUsername] = useState('');
@@ -395,6 +396,15 @@ export default function ProfileScreen() {
     );
   };
 
+  const handleImageScroll = (event, postId) => {
+    const contentOffset = event.nativeEvent.contentOffset.x;
+    const index = Math.round(contentOffset / Dimensions.get('window').width);
+    setCurrentImageIndices(prev => ({
+      ...prev,
+      [postId]: index
+    }));
+  };
+
   const renderDetailPost = ({ item }) => (
     <View style={styles.detailPost}>
       <View style={styles.postHeader}>
@@ -410,8 +420,39 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         )}
       </View>
-      <Image source={{ uri: item.imageUrl }} style={styles.detailImage} />
-      <View style={styles.detailContent}>
+
+      <View style={styles.imageGalleryContainer}>
+        <FlatList
+          data={item.imageUrls || [item.imageUrl]} // Support both old and new format
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          keyExtractor={(_, index) => `${item.id}-image-${index}`}
+          renderItem={({ item: imageUrl }) => (
+            <Image 
+              source={{ uri: imageUrl }} 
+              style={styles.detailImage}
+            />
+          )}
+          onScroll={(e) => handleImageScroll(e, item.id)}
+          scrollEventThrottle={16}
+        />
+        {(item.imageUrls?.length > 1 || false) && (
+          <View style={styles.paginationDots}>
+            {(item.imageUrls || []).map((_, index) => (
+              <View
+                key={index}
+                style={[
+                  styles.paginationDot,
+                  index === (currentImageIndices[item.id] || 0) && styles.paginationDotActive
+                ]}
+              />
+            ))}
+          </View>
+        )}
+      </View>
+
+      <View style={styles.postContent}>
         <Text style={styles.postCaption}>{item.caption}</Text>
         <Text style={styles.postDate}>
           {item.createdAt?.toDate().toLocaleString() || ''}
@@ -422,10 +463,18 @@ export default function ProfileScreen() {
 
   const renderGridPost = ({ item }) => (
     <TouchableOpacity onPress={() => handlePostPress(item)}>
-      <Image source={{ uri: item.imageUrl }} style={styles.gridImage} />
+      <Image 
+        source={{ uri: item.imageUrls?.[0] || item.imageUrl }} 
+        style={styles.gridImage} 
+      />
       {item.owners?.length > 1 && (
         <View style={styles.coOwnedBadge}>
           <Ionicons name="people" size={12} color="#fff" />
+        </View>
+      )}
+      {item.imageUrls?.length > 1 && (
+        <View style={styles.multipleImagesBadge}>
+          <Ionicons name="images" size={12} color="#fff" />
         </View>
       )}
       {item.userId === auth.currentUser.uid && (
@@ -1076,36 +1125,99 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3
   },
-  detailImage: {
+  imageGalleryContainer: {
+    position: 'relative',
     width: '100%',
+    height: 400,
+  },
+  detailImage: {
+    width: Dimensions.get('window').width,
     height: 400,
     resizeMode: 'cover'
   },
-  detailContent: {
+  paginationDots: {
+    position: 'absolute',
+    bottom: 10,
+    flexDirection: 'row',
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  paginationDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255, 255, 255, 0.5)',
+    marginHorizontal: 3,
+  },
+  paginationDotActive: {
+    backgroundColor: '#fff',
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  multipleImagesBadge: {
+    position: 'absolute',
+    top: 5,
+    right: 34,
+    backgroundColor: 'rgba(25, 118, 210, 0.8)',
+    borderRadius: 12,
+    width: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  postContent: {
     padding: 15
   },
-  detailHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+  postCaption: {
+    fontSize: 16,
     marginBottom: 10
   },
-  detailUsername: {
-    fontSize: 16,
-    fontWeight: 'bold'
-  },
-  detailDate: {
+  postDate: {
+    fontSize: 12,
     color: '#666',
-    fontSize: 14
+    marginTop: 5
   },
-  detailCaption: {
-    fontSize: 16,
-    marginBottom: 10,
-    lineHeight: 22
+  coOwnedBadge: {
+    position: 'absolute',
+    top: 5,
+    right: 5,
+    backgroundColor: '#1976d2',
+    borderRadius: 12,
+    width: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center'
   },
-  detailTags: {
-    color: '#0095f6',
-    fontSize: 14
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  postHeader: {
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee'
+  },
+  postOwners: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#1976d2'
+  },
+  deleteButton: {
+    padding: 8,
+  },
+  gridDeleteButton: {
+    position: 'absolute',
+    top: 5,
+    right: 5,
+    backgroundColor: 'rgba(255, 59, 48, 0.8)',
+    borderRadius: 12,
+    width: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center'
   },
   headerButtons: {
     flexDirection: 'row',
@@ -1247,6 +1359,21 @@ const styles = StyleSheet.create({
     backgroundColor: '#f0f0f0',
     justifyContent: 'center',
     alignItems: 'center'
+  },
+  ownersContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    marginVertical: 5
+  },
+  ownersLabel: {
+    fontWeight: 'bold',
+    color: '#666',
+    marginRight: 5
+  },
+  owners: {
+    color: '#1976d2',
+    flex: 1
   },
   postCaption: {
     fontSize: 16,

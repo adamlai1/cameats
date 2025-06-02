@@ -5,6 +5,7 @@ import { collection, doc, getDoc, getDocs, orderBy, query } from 'firebase/fires
 import { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
+    Dimensions,
     FlatList,
     Image,
     RefreshControl,
@@ -21,6 +22,7 @@ export default function FeedScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [viewMode, setViewMode] = useState('detail'); // 'detail' or 'grid'
+  const [currentImageIndices, setCurrentImageIndices] = useState({}); // Track current image index for each post
 
   const fetchPosts = async () => {
     try {
@@ -80,6 +82,15 @@ export default function FeedScreen() {
     setViewMode(prev => prev === 'detail' ? 'grid' : 'detail');
   };
 
+  const handleScroll = (event, postId) => {
+    const contentOffset = event.nativeEvent.contentOffset.x;
+    const index = Math.round(contentOffset / Dimensions.get('window').width);
+    setCurrentImageIndices(prev => ({
+      ...prev,
+      [postId]: index
+    }));
+  };
+
   const renderDetailPost = ({ item }) => (
     <View style={styles.postContainer}>
       <View style={styles.postHeader}>
@@ -87,11 +98,39 @@ export default function FeedScreen() {
           {item.owners?.map(owner => owner.username).join(' • ')}
         </Text>
       </View>
-      <Image 
-        source={{ uri: item.imageUrl }} 
-        style={styles.postImage}
-        resizeMode="cover"
-      />
+      
+      <View style={styles.imageGalleryContainer}>
+        <FlatList
+          data={item.imageUrls || [item.imageUrl]} // Support both old and new format
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          keyExtractor={(_, index) => `${item.id}-image-${index}`}
+          renderItem={({ item: imageUrl }) => (
+            <Image 
+              source={{ uri: imageUrl }} 
+              style={styles.postImage}
+              resizeMode="cover"
+            />
+          )}
+          onScroll={(e) => handleScroll(e, item.id)}
+          scrollEventThrottle={16}
+        />
+        {(item.imageUrls?.length > 1 || false) && (
+          <View style={styles.paginationDots}>
+            {(item.imageUrls || []).map((_, index) => (
+              <View
+                key={index}
+                style={[
+                  styles.paginationDot,
+                  index === (currentImageIndices[item.id] || 0) && styles.paginationDotActive
+                ]}
+              />
+            ))}
+          </View>
+        )}
+      </View>
+
       <View style={styles.postFooter}>
         <Text style={styles.caption}>{item.caption}</Text>
         <Text style={styles.postDate}>
@@ -106,10 +145,18 @@ export default function FeedScreen() {
       style={styles.gridItem}
       onPress={() => setViewMode('detail')}
     >
-      <Image source={{ uri: item.imageUrl }} style={styles.gridImage} />
+      <Image 
+        source={{ uri: item.imageUrls?.[0] || item.imageUrl }} 
+        style={styles.gridImage} 
+      />
       {item.owners?.length > 1 && (
         <View style={styles.coOwnedBadge}>
           <Ionicons name="people" size={12} color="white" />
+        </View>
+      )}
+      {item.imageUrls?.length > 1 && (
+        <View style={styles.multipleImagesBadge}>
+          <Ionicons name="images" size={12} color="white" />
         </View>
       )}
     </TouchableOpacity>
@@ -217,8 +264,35 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: '#1976d2'
   },
-  postImage: {
+  imageGalleryContainer: {
     width: '100%',
+    aspectRatio: 1,
+    position: 'relative',
+    backgroundColor: '#f5f5f5'
+  },
+  paginationDots: {
+    position: 'absolute',
+    bottom: 10,
+    flexDirection: 'row',
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  paginationDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255, 255, 255, 0.5)',
+    marginHorizontal: 3,
+  },
+  paginationDotActive: {
+    backgroundColor: '#fff',
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  postImage: {
+    width: Dimensions.get('window').width,
     aspectRatio: 1,
     backgroundColor: '#f5f5f5'
   },
@@ -249,6 +323,17 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 5,
     right: 5,
+    backgroundColor: 'rgba(25, 118, 210, 0.8)',
+    borderRadius: 12,
+    width: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  multipleImagesBadge: {
+    position: 'absolute',
+    top: 5,
+    right: 34,
     backgroundColor: 'rgba(25, 118, 210, 0.8)',
     borderRadius: 12,
     width: 24,

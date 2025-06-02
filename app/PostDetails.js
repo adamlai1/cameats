@@ -5,6 +5,7 @@ import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { useEffect, useState } from 'react';
 import {
     Alert,
+    Dimensions,
     FlatList,
     Image,
     Keyboard,
@@ -21,8 +22,11 @@ import {
 import * as Progress from 'react-native-progress';
 import { auth, db, storage } from '../firebase';
 
+const SCREEN_WIDTH = Dimensions.get('window').width;
+const IMAGE_SIZE = SCREEN_WIDTH;
+
 export default function PostDetails() {
-  const { imageUri } = useLocalSearchParams();
+  const { imageUris } = useLocalSearchParams();
   const router = useRouter();
   
   const [caption, setCaption] = useState('');
@@ -30,6 +34,9 @@ export default function PostDetails() {
   const [selectedFriends, setSelectedFriends] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
+
+  const images = JSON.parse(imageUris);
 
   useEffect(() => {
     // Fetch friends list
@@ -71,7 +78,7 @@ export default function PostDetails() {
   };
 
   const uploadPost = async () => {
-    if (!imageUri) return Alert.alert('Error', 'No image selected');
+    if (!images || images.length === 0) return Alert.alert('Error', 'No images selected');
     setUploading(true);
     setProgress(0);
 
@@ -83,21 +90,29 @@ export default function PostDetails() {
         return Alert.alert('Error', 'User profile not found');
       }
 
-      // Upload image
-      const response = await fetch(imageUri);
-      const blob = await response.blob();
+      // Upload all images
+      const uploadPromises = images.map(async (imageUri, index) => {
+        const response = await fetch(imageUri);
+        const blob = await response.blob();
 
-      if (blob.size > 10 * 1024 * 1024) {
-        setUploading(false);
-        return Alert.alert('Error', 'File too large. Max size is 10MB.');
-      }
+        if (blob.size > 10 * 1024 * 1024) {
+          throw new Error(`Image ${index + 1} is too large. Max size is 10MB.`);
+        }
 
-      const timestamp = Date.now();
-      const filename = `images/${auth.currentUser.uid}_${timestamp}.jpg`;
-      const storageRef = ref(storage, filename);
+        const timestamp = Date.now();
+        const filename = `images/${auth.currentUser.uid}_${timestamp}_${index}.jpg`;
+        const storageRef = ref(storage, filename);
 
-      await uploadBytes(storageRef, blob);
-      const url = await getDownloadURL(storageRef);
+        await uploadBytes(storageRef, blob);
+        const url = await getDownloadURL(storageRef);
+        
+        // Update progress
+        setProgress((index + 1) / images.length);
+        
+        return url;
+      });
+
+      const imageUrls = await Promise.all(uploadPromises);
 
       // Get owner information
       const ownerPromises = [
@@ -121,7 +136,7 @@ export default function PostDetails() {
 
       // Create post
       const postData = {
-        imageUrl: url,
+        imageUrls: imageUrls,
         caption: caption || '',
         userId: auth.currentUser.uid,
         username: owners.find(owner => owner.id === auth.currentUser.uid)?.username || 'Unknown',
@@ -139,6 +154,12 @@ export default function PostDetails() {
       setUploading(false);
       Alert.alert('Error', 'Failed to upload post. Please try again.');
     }
+  };
+
+  const handleScroll = (event) => {
+    const contentOffset = event.nativeEvent.contentOffset.x;
+    const index = Math.round(contentOffset / SCREEN_WIDTH);
+    setCurrentImageIndex(index);
   };
 
   return (
@@ -166,7 +187,33 @@ export default function PostDetails() {
             </View>
 
             <View style={styles.content}>
-              <Image source={{ uri: imageUri }} style={styles.image} />
+              <View style={styles.imageGalleryContainer}>
+                <FlatList
+                  data={images}
+                  renderItem={({ item }) => (
+                    <Image source={{ uri: item }} style={styles.image} />
+                  )}
+                  horizontal
+                  pagingEnabled
+                  showsHorizontalScrollIndicator={false}
+                  onScroll={handleScroll}
+                  scrollEventThrottle={16}
+                  keyExtractor={(_, index) => index.toString()}
+                />
+                {images.length > 1 && (
+                  <View style={styles.paginationDots}>
+                    {images.map((_, index) => (
+                      <View
+                        key={index}
+                        style={[
+                          styles.paginationDot,
+                          index === currentImageIndex && styles.paginationDotActive
+                        ]}
+                      />
+                    ))}
+                  </View>
+                )}
+              </View>
               
               <TextInput
                 placeholder="Write a caption..."
@@ -207,7 +254,9 @@ export default function PostDetails() {
               {uploading && (
                 <View style={styles.progressContainer}>
                   <Progress.Bar progress={progress} width={200} />
-                  <Text style={styles.progressText}>Uploading...</Text>
+                  <Text style={styles.progressText}>
+                    Uploading {Math.round(progress * 100)}%
+                  </Text>
                 </View>
               )}
             </View>
@@ -252,43 +301,63 @@ const styles = StyleSheet.create({
     fontWeight: '600'
   },
   content: {
-    flex: 1,
-    padding: 16
+    flex: 1
+  },
+  imageGalleryContainer: {
+    width: '100%',
+    height: IMAGE_SIZE,
+    position: 'relative'
   },
   image: {
+    width: IMAGE_SIZE,
+    height: IMAGE_SIZE
+  },
+  paginationDots: {
+    position: 'absolute',
+    bottom: 10,
+    flexDirection: 'row',
     width: '100%',
-    height: 300,
-    borderRadius: 12,
-    marginBottom: 16
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  paginationDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255, 255, 255, 0.5)',
+    marginHorizontal: 3,
+  },
+  paginationDotActive: {
+    backgroundColor: '#fff',
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
   captionInput: {
+    padding: 16,
     fontSize: 16,
-    minHeight: 100,
-    textAlignVertical: 'top',
-    marginBottom: 16,
-    padding: 12,
-    backgroundColor: '#f8f8f8',
-    borderRadius: 12
+    maxHeight: 100
   },
   friendsSection: {
-    flex: 1
+    flex: 1,
+    padding: 16
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: '600',
-    marginBottom: 12
+    marginBottom: 16
   },
   friendItem: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 12,
-    backgroundColor: '#f8f8f8',
-    marginBottom: 8,
-    borderRadius: 8
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee'
   },
   selectedFriend: {
-    backgroundColor: '#e3f2fd'
+    backgroundColor: '#f0f0f0'
   },
   friendName: {
     fontSize: 16
@@ -296,15 +365,20 @@ const styles = StyleSheet.create({
   noFriendsText: {
     textAlign: 'center',
     color: '#666',
-    fontStyle: 'italic',
-    marginTop: 20
+    fontStyle: 'italic'
   },
   progressContainer: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    transform: [{ translateX: -100 }, { translateY: -20 }],
     alignItems: 'center',
-    marginTop: 20
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    padding: 20,
+    borderRadius: 10
   },
   progressText: {
-    marginTop: 8,
-    color: '#666'
+    color: '#fff',
+    marginTop: 10
   }
 }); 

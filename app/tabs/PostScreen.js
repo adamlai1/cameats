@@ -3,9 +3,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import {
     Alert,
+    Dimensions,
+    FlatList,
+    Image,
     SafeAreaView,
     StyleSheet,
     Text,
@@ -13,8 +16,12 @@ import {
     View
 } from 'react-native';
 
+const SCREEN_WIDTH = Dimensions.get('window').width;
+const IMAGE_SIZE = SCREEN_WIDTH / 3;
+
 export default function PostScreen() {
   const router = useRouter();
+  const [selectedImages, setSelectedImages] = useState([]);
 
   useEffect(() => {
     (async () => {
@@ -25,19 +32,18 @@ export default function PostScreen() {
     })();
   }, []);
 
-  const pickImage = async () => {
+  const pickImages = async () => {
     let result = await ImagePicker.launchImageLibraryAsync({ 
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       quality: 0.2,
-      allowsEditing: true,
-      aspect: [4, 3]
+      allowsMultipleSelection: true,
+      selectionLimit: 10,
+      aspect: [1, 1]
     });
     
     if (!result.canceled) {
-      router.push({
-        pathname: '/PostDetails',
-        params: { imageUri: result.assets[0].uri }
-      });
+      const newImages = result.assets.map(asset => asset.uri);
+      setSelectedImages(prev => [...prev, ...newImages].slice(0, 10));
     }
   };
 
@@ -45,32 +51,80 @@ export default function PostScreen() {
     let result = await ImagePicker.launchCameraAsync({ 
       allowsEditing: true,
       quality: 0.2,
-      aspect: [4, 3]
+      aspect: [1, 1]
     });
     
     if (!result.canceled) {
-      router.push({
-        pathname: '/PostDetails',
-        params: { imageUri: result.assets[0].uri }
-      });
+      setSelectedImages(prev => [...prev, result.assets[0].uri].slice(0, 10));
     }
   };
+
+  const removeImage = (index) => {
+    setSelectedImages(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleNext = () => {
+    if (selectedImages.length === 0) {
+      Alert.alert('Error', 'Please select at least one image');
+      return;
+    }
+
+    router.push({
+      pathname: '/PostDetails',
+      params: { imageUris: JSON.stringify(selectedImages) }
+    });
+  };
+
+  const renderSelectedImage = ({ item, index }) => (
+    <View style={styles.imageContainer}>
+      <Image source={{ uri: item }} style={styles.selectedImage} />
+      <TouchableOpacity 
+        style={styles.removeButton}
+        onPress={() => removeImage(index)}
+      >
+        <Ionicons name="close-circle" size={24} color="#ff3b30" />
+      </TouchableOpacity>
+    </View>
+  );
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
         <Text style={styles.title}>Create a Post</Text>
         
+        {selectedImages.length > 0 && (
+          <View style={styles.selectedImagesContainer}>
+            <FlatList
+              data={selectedImages}
+              renderItem={renderSelectedImage}
+              keyExtractor={(_, index) => index.toString()}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.imageList}
+            />
+          </View>
+        )}
+
         <View style={styles.buttonContainer}>
           <TouchableOpacity style={styles.button} onPress={takePhoto}>
             <Ionicons name="camera" size={32} color="#fff" />
             <Text style={styles.buttonText}>Take Photo</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.button} onPress={pickImage}>
+          <TouchableOpacity style={styles.button} onPress={pickImages}>
             <Ionicons name="images" size={32} color="#fff" />
             <Text style={styles.buttonText}>Choose from Gallery</Text>
           </TouchableOpacity>
+
+          {selectedImages.length > 0 && (
+            <TouchableOpacity 
+              style={[styles.button, styles.nextButton]} 
+              onPress={handleNext}
+            >
+              <Text style={styles.buttonText}>Next</Text>
+              <Ionicons name="arrow-forward" size={24} color="#fff" />
+            </TouchableOpacity>
+          )}
         </View>
       </View>
     </SafeAreaView>
@@ -91,8 +145,31 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 24,
     fontWeight: 'bold',
-    marginBottom: 40,
+    marginBottom: 20,
     color: '#333'
+  },
+  selectedImagesContainer: {
+    width: '100%',
+    marginBottom: 20
+  },
+  imageList: {
+    gap: 10,
+    paddingHorizontal: 10
+  },
+  imageContainer: {
+    position: 'relative'
+  },
+  selectedImage: {
+    width: IMAGE_SIZE,
+    height: IMAGE_SIZE,
+    borderRadius: 8
+  },
+  removeButton: {
+    position: 'absolute',
+    top: -8,
+    right: -8,
+    backgroundColor: '#fff',
+    borderRadius: 12
   },
   buttonContainer: {
     width: '100%',
@@ -108,6 +185,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     gap: 10
+  },
+  nextButton: {
+    backgroundColor: '#34C759'
   },
   buttonText: {
     color: '#fff',
