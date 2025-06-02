@@ -43,8 +43,8 @@ export default function RootLayout() {
         <Stack.Screen 
           name="FriendProfile"
           options={{
-            presentation: 'modal',
-            animation: 'slide_from_right',
+            headerShown: false,
+            animation: 'slide_from_right'
           }}
         />
       </Stack>

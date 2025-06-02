@@ -2,15 +2,17 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { addDoc, collection, doc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
     Alert,
     Dimensions,
     FlatList,
     Image,
+    Keyboard,
     KeyboardAvoidingView,
     Platform,
     SafeAreaView,
+    ScrollView,
     StyleSheet,
     Text,
     TextInput,
@@ -26,6 +28,7 @@ const IMAGE_SIZE = SCREEN_WIDTH;
 export default function PostDetails() {
   const { imageUris } = useLocalSearchParams();
   const router = useRouter();
+  const scrollViewRef = useRef(null);
   
   const [caption, setCaption] = useState('');
   const [friends, setFriends] = useState([]);
@@ -158,14 +161,71 @@ export default function PostDetails() {
     const contentOffset = event.nativeEvent.contentOffset.x;
     const index = Math.round(contentOffset / SCREEN_WIDTH);
     setCurrentImageIndex(index);
+    Keyboard.dismiss();
   };
+
+  const handleCaptionFocus = () => {
+    // Wait for keyboard to appear before scrolling
+    setTimeout(() => {
+      scrollViewRef.current?.scrollTo({
+        y: IMAGE_SIZE + 20,
+        animated: true
+      });
+    }, 100);
+  };
+
+  const renderHeader = () => (
+    <>
+      <View style={styles.imageGalleryContainer}>
+        <FlatList
+          data={images}
+          renderItem={({ item }) => (
+            <Image source={{ uri: item }} style={styles.image} />
+          )}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
+          keyExtractor={(_, index) => index.toString()}
+        />
+        {images.length > 1 && (
+          <View style={styles.paginationDots}>
+            {images.map((_, index) => (
+              <View
+                key={index}
+                style={[
+                  styles.paginationDot,
+                  index === currentImageIndex && styles.paginationDotActive
+                ]}
+              />
+            ))}
+          </View>
+        )}
+      </View>
+      
+      <View style={styles.captionContainer}>
+        <TextInput
+          placeholder="Write a caption..."
+          value={caption}
+          onChangeText={setCaption}
+          onFocus={handleCaptionFocus}
+          style={styles.captionInput}
+          multiline
+          maxLength={2200}
+        />
+      </View>
+
+      <Text style={styles.sectionTitle}>Tag Friends</Text>
+    </>
+  );
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView 
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.container}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.keyboardAvoidingView}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
       >
         <View style={styles.header}>
           <TouchableOpacity onPress={() => router.back()}>
@@ -183,59 +243,18 @@ export default function PostDetails() {
           </TouchableOpacity>
         </View>
 
-        <FlatList
+        <ScrollView
+          ref={scrollViewRef}
           style={styles.content}
           keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-          ListHeaderComponent={() => (
-            <>
-              <View style={styles.imageGalleryContainer}>
-                <FlatList
-                  data={images}
-                  renderItem={({ item }) => (
-                    <Image source={{ uri: item }} style={styles.image} />
-                  )}
-                  horizontal
-                  pagingEnabled
-                  showsHorizontalScrollIndicator={false}
-                  onScroll={handleScroll}
-                  scrollEventThrottle={16}
-                  keyExtractor={(_, index) => index.toString()}
-                />
-                {images.length > 1 && (
-                  <View style={styles.paginationDots}>
-                    {images.map((_, index) => (
-                      <View
-                        key={index}
-                        style={[
-                          styles.paginationDot,
-                          index === currentImageIndex && styles.paginationDotActive
-                        ]}
-                      />
-                    ))}
-                  </View>
-                )}
-              </View>
-              
-              <View style={styles.captionContainer}>
-                <TextInput
-                  placeholder="Write a caption..."
-                  value={caption}
-                  onChangeText={setCaption}
-                  style={styles.captionInput}
-                  multiline
-                  autoFocus
-                  maxLength={2200}
-                />
-              </View>
-
-              <Text style={styles.sectionTitle}>Tag Friends</Text>
-            </>
-          )}
-          data={friends}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
+          keyboardDismissMode="interactive"
+          contentContainerStyle={styles.scrollContent}
+        >
+          {renderHeader()}
+          
+          {friends.map(item => (
             <TouchableOpacity
+              key={item.id}
               style={[
                 styles.friendItem,
                 selectedFriends.some(f => f.id === item.id) && styles.selectedFriend
@@ -247,14 +266,8 @@ export default function PostDetails() {
                 <Ionicons name="checkmark-circle" size={24} color="#007AFF" />
               )}
             </TouchableOpacity>
-          )}
-          ListEmptyComponent={() => (
-            <Text style={styles.noFriendsText}>
-              Add some friends to tag them in your posts!
-            </Text>
-          )}
-          contentContainerStyle={styles.friendsListContainer}
-        />
+          ))}
+        </ScrollView>
 
         {uploading && (
           <View style={styles.progressContainer}>
@@ -274,8 +287,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#fff'
   },
-  container: {
-    flex: 1
+  keyboardAvoidingView: {
+    flex: 1,
+    backgroundColor: '#fff'
   },
   header: {
     flexDirection: 'row',
@@ -283,7 +297,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee'
+    borderBottomColor: '#eee',
+    backgroundColor: '#fff'
   },
   headerTitle: {
     fontSize: 18,
@@ -304,6 +319,10 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
+    backgroundColor: '#fff'
+  },
+  scrollContent: {
+    flexGrow: 1,
     backgroundColor: '#fff'
   },
   imageGalleryContainer: {
@@ -337,11 +356,10 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   captionContainer: {
-    backgroundColor: '#f8f8f8',
+    backgroundColor: '#fff',
     marginVertical: 10,
     marginHorizontal: 16,
-    borderRadius: 8,
-    padding: 8
+    borderRadius: 8
   },
   captionInput: {
     fontSize: 16,
@@ -390,9 +408,5 @@ const styles = StyleSheet.create({
   progressText: {
     color: '#fff',
     marginTop: 10
-  },
-  friendsListContainer: {
-    paddingHorizontal: 16,
-    paddingBottom: Platform.OS === 'ios' ? 120 : 90 // Adjusted padding for keyboard
   }
 }); 

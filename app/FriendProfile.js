@@ -4,6 +4,7 @@ import { collection, doc, getDoc, getDocs, orderBy, query } from 'firebase/fires
 import { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
+    Dimensions,
     FlatList,
     Image,
     RefreshControl,
@@ -79,14 +80,55 @@ export default function FriendProfile() {
     setViewMode('detail');
   };
 
+  const handleUsernamePress = (ownerId) => {
+    if (ownerId === userId) return; // Don't navigate if clicking current profile
+    router.push({
+      pathname: '/FriendProfile',
+      params: { userId: ownerId }
+    });
+  };
+
   const renderDetailPost = ({ item }) => (
     <View style={styles.detailPost}>
       <View style={styles.postHeader}>
-        <Text style={styles.postOwners}>
-          {item.owners?.map(owner => owner.username).join(' • ')}
-        </Text>
+        <View style={styles.usernameContainer}>
+          {item.owners?.map((owner, index) => (
+            <View key={owner.id} style={styles.usernameWrapper}>
+              <TouchableOpacity onPress={() => handleUsernamePress(owner.id)}>
+                <Text style={styles.postOwners}>{owner.username}</Text>
+              </TouchableOpacity>
+              {index < item.owners.length - 1 && (
+                <Text style={styles.usernameSeparator}> • </Text>
+              )}
+            </View>
+          ))}
+        </View>
       </View>
-      <Image source={{ uri: item.imageUrl }} style={styles.detailImage} />
+      <View style={styles.imageGalleryContainer}>
+        <FlatList
+          data={item.imageUrls || [item.imageUrl]}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          keyExtractor={(_, index) => `${item.id}-image-${index}`}
+          renderItem={({ item: imageUrl }) => (
+            <Image source={{ uri: imageUrl }} style={styles.detailImage} />
+          )}
+        />
+        {(item.imageUrls?.length > 1) && (
+          <View style={styles.paginationDots}>
+            {(item.imageUrls).map((_, index) => (
+              <View
+                key={index}
+                style={[
+                  styles.paginationDot,
+                  index === 0 && styles.paginationDotActive
+                ]}
+              />
+            ))}
+          </View>
+        )}
+      </View>
       <View style={styles.postContent}>
         <Text style={styles.postCaption}>{item.caption}</Text>
         <Text style={styles.postDate}>
@@ -98,10 +140,18 @@ export default function FriendProfile() {
 
   const renderGridPost = ({ item }) => (
     <TouchableOpacity onPress={() => handlePostPress(item)}>
-      <Image source={{ uri: item.imageUrl }} style={styles.gridImage} />
+      <Image 
+        source={{ uri: item.imageUrls?.[0] || item.imageUrl }} 
+        style={styles.gridImage} 
+      />
       {item.owners?.length > 1 && (
         <View style={styles.coOwnedBadge}>
           <Ionicons name="people" size={12} color="#fff" />
+        </View>
+      )}
+      {item.imageUrls?.length > 1 && (
+        <View style={styles.multipleImagesBadge}>
+          <Ionicons name="images" size={12} color="#fff" />
         </View>
       )}
     </TouchableOpacity>
@@ -332,8 +382,13 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3
   },
-  detailImage: {
+  imageGalleryContainer: {
     width: '100%',
+    height: 400,
+    position: 'relative'
+  },
+  detailImage: {
+    width: Dimensions.get('window').width,
     height: 400,
     resizeMode: 'cover'
   },
@@ -341,6 +396,19 @@ const styles = StyleSheet.create({
     padding: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#eee'
+  },
+  usernameContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center'
+  },
+  usernameWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center'
+  },
+  usernameSeparator: {
+    fontSize: 14,
+    color: '#666'
   },
   postOwners: {
     fontSize: 14,
@@ -360,14 +428,46 @@ const styles = StyleSheet.create({
     marginTop: 5
   },
   gridImage: {
-    width: 120,
-    height: 120,
+    width: Dimensions.get('window').width / 3 - 2,
+    height: Dimensions.get('window').width / 3 - 2,
     margin: 1
   },
   coOwnedBadge: {
     position: 'absolute',
     top: 5,
     right: 5,
+    backgroundColor: 'rgba(25, 118, 210, 0.8)',
+    borderRadius: 12,
+    width: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  paginationDots: {
+    position: 'absolute',
+    bottom: 10,
+    flexDirection: 'row',
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  paginationDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255, 255, 255, 0.5)',
+    marginHorizontal: 3,
+  },
+  paginationDotActive: {
+    backgroundColor: '#fff',
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  multipleImagesBadge: {
+    position: 'absolute',
+    top: 5,
+    right: 34,
     backgroundColor: 'rgba(25, 118, 210, 0.8)',
     borderRadius: 12,
     width: 24,

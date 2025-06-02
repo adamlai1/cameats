@@ -1,6 +1,7 @@
 // app/FeedScreen.js
 
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { collection, doc, getDoc, getDocs, orderBy, query } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
 import {
@@ -23,6 +24,7 @@ export default function FeedScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [viewMode, setViewMode] = useState('detail'); // 'detail' or 'grid'
   const [currentImageIndices, setCurrentImageIndices] = useState({}); // Track current image index for each post
+  const router = useRouter();
 
   const fetchPosts = async () => {
     try {
@@ -91,12 +93,28 @@ export default function FeedScreen() {
     }));
   };
 
+  const handleUsernamePress = (userId) => {
+    router.push({
+      pathname: '/FriendProfile',
+      params: { userId }
+    });
+  };
+
   const renderDetailPost = ({ item }) => (
     <View style={styles.postContainer}>
       <View style={styles.postHeader}>
-        <Text style={styles.username}>
-          {item.owners?.map(owner => owner.username).join(' • ')}
-        </Text>
+        <View style={styles.usernameContainer}>
+          {item.owners?.map((owner, index) => (
+            <View key={owner.id} style={styles.usernameWrapper}>
+              <TouchableOpacity onPress={() => handleUsernamePress(owner.id)}>
+                <Text style={styles.username}>{owner.username}</Text>
+              </TouchableOpacity>
+              {index < item.owners.length - 1 && (
+                <Text style={styles.usernameSeparator}> • </Text>
+              )}
+            </View>
+          ))}
+        </View>
       </View>
       
       <View style={styles.imageGalleryContainer}>
@@ -249,8 +267,7 @@ const styles = StyleSheet.create({
   postContainer: {
     marginBottom: 15,
     backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee'
+    width: '100%'
   },
   postHeader: {
     flexDirection: 'row',
@@ -259,10 +276,23 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#eee'
   },
+  usernameContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center'
+  },
+  usernameWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center'
+  },
   username: {
     fontSize: 14,
     fontWeight: '500',
     color: '#1976d2'
+  },
+  usernameSeparator: {
+    fontSize: 14,
+    color: '#666'
   },
   imageGalleryContainer: {
     width: '100%',
@@ -309,7 +339,7 @@ const styles = StyleSheet.create({
     marginTop: 8
   },
   gridItem: {
-    flex: 1/3,
+    width: Dimensions.get('window').width / 3 - 2,
     aspectRatio: 1,
     margin: 1,
     position: 'relative'

@@ -406,12 +406,29 @@ export default function ProfileScreen() {
     }));
   };
 
+  const handleUsernamePress = (ownerId) => {
+    if (ownerId === auth.currentUser.uid) return; // Don't navigate if clicking own profile
+    router.push({
+      pathname: '/FriendProfile',
+      params: { userId: ownerId }
+    });
+  };
+
   const renderDetailPost = ({ item }) => (
     <View style={styles.detailPost}>
       <View style={styles.postHeader}>
-        <Text style={styles.postOwners}>
-          {item.owners?.map(owner => owner.username).join(' • ')}
-        </Text>
+        <View style={styles.usernameContainer}>
+          {item.owners?.map((owner, index) => (
+            <View key={owner.id} style={styles.usernameWrapper}>
+              <TouchableOpacity onPress={() => handleUsernamePress(owner.id)}>
+                <Text style={styles.postOwners}>{owner.username}</Text>
+              </TouchableOpacity>
+              {index < item.owners.length - 1 && (
+                <Text style={styles.usernameSeparator}> • </Text>
+              )}
+            </View>
+          ))}
+        </View>
         {item.userId === auth.currentUser.uid && (
           <TouchableOpacity 
             onPress={() => handleDeletePost(item)}
@@ -566,7 +583,10 @@ export default function ProfileScreen() {
 
           <TouchableOpacity 
             style={styles.statItem}
-            onPress={() => setShowFriendsList(true)}
+            onPress={() => router.push({
+              pathname: '/FriendsList',
+              params: { userId: auth.currentUser.uid }
+            })}
           >
             <Text style={styles.statNumber}>{friendsList.length}</Text>
             <Text style={styles.statLabel}>Friends</Text>
@@ -592,45 +612,6 @@ export default function ProfileScreen() {
       setInitialScrollIndex(0);
     }
   };
-
-  const FriendsList = () => (
-    <View style={styles.friendsContainer}>
-      <Text style={styles.sectionTitle}>Friends ({friendsList.length})</Text>
-      <FlatList
-        data={friendsList}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <TouchableOpacity 
-            style={styles.friendItem}
-            onPress={() => {
-              setShowFriendsList(false); // Close friends list modal first
-              router.push({
-                pathname: '/FriendProfile',
-                params: { userId: item.id }
-              });
-            }}
-          >
-            {item.profilePicUrl ? (
-              <Image
-                source={{ uri: item.profilePicUrl }}
-                style={styles.friendAvatar}
-              />
-            ) : (
-              <View style={[styles.friendAvatar, styles.defaultAvatar]}>
-                <Ionicons name="person" size={30} color="#666" />
-              </View>
-            )}
-            <View style={styles.friendInfo}>
-              <Text style={styles.friendName}>{item.displayName || item.username}</Text>
-              <Text style={styles.friendUsername}>@{item.username}</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color="#666" />
-          </TouchableOpacity>
-        )}
-        contentContainerStyle={styles.friendsList}
-      />
-    </View>
-  );
 
   const renderContent = () => {
     if (loading && !refreshing) {
@@ -816,31 +797,6 @@ export default function ProfileScreen() {
             />
           </View>
         </View>
-      </Modal>
-
-      {/* Friends List Modal */}
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={showFriendsList}
-        onRequestClose={() => setShowFriendsList(false)}
-      >
-        <SafeAreaView style={styles.modalView}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Friends</Text>
-            <TouchableOpacity onPress={() => setShowFriendsList(false)}>
-              <Ionicons name="close" size={24} color="black" />
-            </TouchableOpacity>
-          </View>
-
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search friends..."
-            placeholderTextColor="#666"
-          />
-
-          <FriendsList />
-        </SafeAreaView>
       </Modal>
 
       {/* Settings Modal */}
@@ -1093,10 +1049,9 @@ const styles = StyleSheet.create({
     height: POST_WIDTH
   },
   gridImage: {
-    width: POST_WIDTH,
-    height: POST_WIDTH,
-    borderWidth: 1,
-    borderColor: '#fff'
+    width: Dimensions.get('window').width / 3 - 2,
+    height: Dimensions.get('window').width / 3 - 2,
+    margin: 1
   },
   backButton: {
     flexDirection: 'row',
@@ -1115,21 +1070,13 @@ const styles = StyleSheet.create({
   detailPost: {
     marginBottom: 20,
     backgroundColor: '#fff',
-    borderRadius: 12,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3
+    width: '100%',
+    overflow: 'hidden'
   },
   imageGalleryContainer: {
     position: 'relative',
     width: '100%',
-    height: 400,
+    height: 400
   },
   detailImage: {
     width: Dimensions.get('window').width,
@@ -1439,5 +1386,19 @@ const styles = StyleSheet.create({
     height: 24,
     justifyContent: 'center',
     alignItems: 'center'
+  },
+  usernameContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center'
+  },
+  usernameWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center'
+  },
+  usernameSeparator: {
+    fontSize: 14,
+    color: '#666'
   }
 });
