@@ -56,19 +56,19 @@ export default function PostScreen() {
     
     if (!result.canceled) {
       setSelectedImages(prev => [...prev, result.assets[0].uri].slice(0, 10));
-    }
+      }
   };
 
   const removeImage = (index) => {
     setSelectedImages(prev => prev.filter((_, i) => i !== index));
   };
-
+        
   const handleNext = () => {
     if (selectedImages.length === 0) {
       Alert.alert('Error', 'Please select at least one image');
-      return;
-    }
-
+          return;
+        }
+        
     router.push({
       pathname: '/PostDetails',
       params: { imageUris: JSON.stringify(selectedImages) }
@@ -89,9 +89,9 @@ export default function PostScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>
-        <Text style={styles.title}>Create a Post</Text>
-        
+    <View style={styles.container}>
+      <Text style={styles.title}>Create a Post</Text>
+              
         {selectedImages.length > 0 && (
           <View style={styles.selectedImagesContainer}>
             <FlatList
@@ -102,8 +102,8 @@ export default function PostScreen() {
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.imageList}
             />
-          </View>
-        )}
+                  </View>
+                )}
 
         <View style={styles.buttonContainer}>
           <TouchableOpacity style={styles.button} onPress={takePhoto}>
@@ -117,16 +117,16 @@ export default function PostScreen() {
           </TouchableOpacity>
 
           {selectedImages.length > 0 && (
-            <TouchableOpacity 
+                      <TouchableOpacity
               style={[styles.button, styles.nextButton]} 
               onPress={handleNext}
-            >
+                      >
               <Text style={styles.buttonText}>Next</Text>
               <Ionicons name="arrow-forward" size={24} color="#fff" />
-            </TouchableOpacity>
-          )}
-        </View>
-      </View>
+                      </TouchableOpacity>
+                    )}
+            </View>
+          </View>
     </SafeAreaView>
   );
 }

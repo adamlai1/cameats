@@ -1,20 +1,45 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { collection, doc, getDoc, getDocs, orderBy, query } from 'firebase/firestore';
-import { useEffect, useState } from 'react';
+import { arrayRemove, arrayUnion, collection, doc, getDoc, getDocs, increment, orderBy, query, updateDoc } from 'firebase/firestore';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    Dimensions,
-    FlatList,
-    Image,
-    RefreshControl,
-    SafeAreaView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View
+  ActivityIndicator,
+  Dimensions,
+  FlatList,
+  Image,
+  RefreshControl,
+  SafeAreaView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
 } from 'react-native';
-import { db } from '../firebase';
+import { State, TapGestureHandler } from 'react-native-gesture-handler';
+import { auth, db } from '../firebase';
+
+// Import bread slice images and preload them
+const breadNormal = require('../assets/images/bread-normal.png');
+const breadBitten = require('../assets/images/bread-bitten.png');
+const biteAnimation = require('../assets/images/bite-animation.png');
+
+// Preload images on app start
+Image.prefetch(Image.resolveAssetSource(breadNormal).uri);
+Image.prefetch(Image.resolveAssetSource(breadBitten).uri);
+
+// Memoized BreadButton component to prevent unnecessary re-renders
+const BreadButton = React.memo(({ postId, hasUserBited, onPress }) => (
+  <TouchableOpacity 
+    style={styles.biteButton}
+    onPress={() => onPress(postId)}
+    activeOpacity={0.7}
+  >
+    <Image 
+      source={hasUserBited ? breadBitten : breadNormal}
+      style={styles.breadEmoji}
+      fadeDuration={0} // Disable fade animation for faster updates
+    />
+  </TouchableOpacity>
+));
 
 export default function FriendProfile() {
   const router = useRouter();
@@ -39,6 +64,9 @@ export default function FriendProfile() {
         ...userData
       });
 
+      // Show profile immediately, then load posts
+      setLoading(false);
+
       // Fetch all posts and filter client-side
       const postsQuery = query(
         collection(db, 'posts'),
@@ -46,10 +74,16 @@ export default function FriendProfile() {
       );
       
       const snapshot = await getDocs(postsQuery);
-      const allPosts = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
+      const allPosts = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          // Ensure like state is always properly initialized
+          bitedBy: Array.isArray(data.bitedBy) ? data.bitedBy : [],
+          bites: typeof data.bites === 'number' ? data.bites : 0
+        };
+      });
 
       // Filter posts where this user is either an owner or creator
       const userPosts = allPosts.filter(post => {
@@ -62,7 +96,6 @@ export default function FriendProfile() {
     } catch (error) {
       console.error('Error fetching friend profile:', error);
     } finally {
-      setLoading(false);
       setRefreshing(false);
     }
   };
@@ -88,55 +121,244 @@ export default function FriendProfile() {
     });
   };
 
-  const renderDetailPost = ({ item }) => (
-    <View style={styles.detailPost}>
-      <View style={styles.postHeader}>
-        <View style={styles.usernameContainer}>
-          {item.owners?.map((owner, index) => (
-            <View key={owner.id} style={styles.usernameWrapper}>
-              <TouchableOpacity onPress={() => handleUsernamePress(owner.id)}>
-                <Text style={styles.postOwners}>{owner.username}</Text>
-              </TouchableOpacity>
-              {index < item.owners.length - 1 && (
-                <Text style={styles.usernameSeparator}> • </Text>
-              )}
-            </View>
-          ))}
-        </View>
-      </View>
-      <View style={styles.imageGalleryContainer}>
-        <FlatList
-          data={item.imageUrls || [item.imageUrl]}
-          horizontal
-          pagingEnabled
-          showsHorizontalScrollIndicator={false}
-          keyExtractor={(_, index) => `${item.id}-image-${index}`}
-          renderItem={({ item: imageUrl }) => (
-            <Image source={{ uri: imageUrl }} style={styles.detailImage} />
-          )}
-        />
-        {(item.imageUrls?.length > 1) && (
-          <View style={styles.paginationDots}>
-            {(item.imageUrls).map((_, index) => (
-              <View
-                key={index}
-                style={[
-                  styles.paginationDot,
-                  index === 0 && styles.paginationDotActive
-                ]}
-              />
+  const updatePostOptimistic = useCallback((postId, updateFn) => {
+    setPosts(prevPosts => {
+      // Find the index once
+      const postIndex = prevPosts.findIndex(post => post.id === postId);
+      if (postIndex === -1) return prevPosts;
+      
+      const currentPost = prevPosts[postIndex];
+      const updatedPost = updateFn(currentPost);
+      
+      // Only update if there's actually a change
+      if (updatedPost === currentPost) return prevPosts;
+      
+      // Create new array with minimal changes
+      const newPosts = [...prevPosts];
+      newPosts[postIndex] = updatedPost;
+      return newPosts;
+    });
+  }, []);
+
+  const handleBitePress = useCallback((postId) => {
+    const currentUserId = auth.currentUser.uid;
+    
+    // First, update UI immediately for instant feedback
+    updatePostOptimistic(postId, (post) => {
+      const currentBitedBy = post.bitedBy || [];
+      const hasUserBited = currentBitedBy.includes(currentUserId);
+      
+      if (hasUserBited) {
+        // Unlike
+        return {
+          ...post,
+          bites: Math.max(0, (post.bites || 0) - 1),
+          bitedBy: currentBitedBy.filter(id => id !== currentUserId)
+        };
+      } else {
+        // Like
+        return {
+          ...post,
+          bites: (post.bites || 0) + 1,
+          bitedBy: [...currentBitedBy, currentUserId]
+        };
+      }
+    });
+    
+    // Then, update Firebase in the background (don't wait for this)
+    const updateFirebase = async () => {
+      try {
+        const postRef = doc(db, 'posts', postId);
+        const postSnap = await getDoc(postRef);
+        if (!postSnap.exists()) return;
+        
+        const currentData = postSnap.data();
+        const currentBitedBy = currentData.bitedBy || [];
+        const hasUserBited = currentBitedBy.includes(currentUserId);
+        
+        if (hasUserBited) {
+          await updateDoc(postRef, {
+            bites: increment(-1),
+            bitedBy: arrayRemove(currentUserId)
+          });
+        } else {
+          await updateDoc(postRef, {
+            bites: increment(1),
+            bitedBy: arrayUnion(currentUserId)
+          });
+        }
+      } catch (error) {
+        console.error('Error updating bites:', error);
+        // If Firebase fails, revert the optimistic update
+        updatePostOptimistic(postId, (post) => {
+          const currentBitedBy = post.bitedBy || [];
+          const hasUserBited = currentBitedBy.includes(currentUserId);
+          
+          // Revert the change
+          if (hasUserBited) {
+            return {
+              ...post,
+              bites: (post.bites || 0) + 1,
+              bitedBy: [...currentBitedBy, currentUserId]
+            };
+          } else {
+            return {
+              ...post,
+              bites: Math.max(0, (post.bites || 0) - 1),
+              bitedBy: currentBitedBy.filter(id => id !== currentUserId)
+            };
+          }
+        });
+      }
+    };
+    
+    updateFirebase();
+  }, [updatePostOptimistic]);
+
+  const handleDoubleTapLike = useCallback((postId) => {
+    const currentUserId = auth.currentUser.uid;
+    
+    // Double-tap should only LIKE, never unlike (Instagram behavior)
+    updatePostOptimistic(postId, (post) => {
+      const currentBitedBy = post.bitedBy || [];
+      const hasUserBited = currentBitedBy.includes(currentUserId);
+      
+      // If already liked, do nothing
+      if (hasUserBited) return post;
+      
+      // If not liked, like it
+      return {
+        ...post,
+        bites: (post.bites || 0) + 1,
+        bitedBy: [...currentBitedBy, currentUserId]
+      };
+    });
+    
+    // Update Firebase in background (only if not already liked)
+    const updateFirebase = async () => {
+      try {
+        const postRef = doc(db, 'posts', postId);
+        const postSnap = await getDoc(postRef);
+        if (!postSnap.exists()) return;
+        
+        const currentData = postSnap.data();
+        const currentBitedBy = currentData.bitedBy || [];
+        const hasUserBited = currentBitedBy.includes(currentUserId);
+        
+        // Only like if not already liked
+        if (!hasUserBited) {
+          await updateDoc(postRef, {
+            bites: increment(1),
+            bitedBy: arrayUnion(currentUserId)
+          });
+        }
+      } catch (error) {
+        console.error('Error updating bites:', error);
+        // If Firebase fails, revert the optimistic update
+        updatePostOptimistic(postId, (post) => {
+          const currentBitedBy = post.bitedBy || [];
+          const hasUserBited = currentBitedBy.includes(currentUserId);
+          
+          // Only revert if we had optimistically liked it
+          if (hasUserBited) {
+            return {
+              ...post,
+              bites: Math.max(0, (post.bites || 0) - 1),
+              bitedBy: currentBitedBy.filter(id => id !== currentUserId)
+            };
+          }
+          return post;
+        });
+      }
+    };
+    
+    updateFirebase();
+  }, [updatePostOptimistic]);
+
+  const renderDetailPost = ({ item }) => {
+    const currentUserId = auth.currentUser.uid;
+    const hasUserBited = item.bitedBy?.includes(currentUserId) || false;
+
+    const handleDoubleTap = () => {
+      // Handle the like logic
+      handleDoubleTapLike(item.id);
+    };
+
+    return (
+      <View style={styles.detailPost}>
+        <View style={styles.postHeader}>
+          <View style={styles.usernameContainer}>
+            {item.owners?.map((owner, index) => (
+              <View key={owner.id} style={styles.usernameWrapper}>
+                <TouchableOpacity onPress={() => handleUsernamePress(owner.id)}>
+                  <Text style={styles.postOwners}>{owner.username}</Text>
+                </TouchableOpacity>
+                {index < item.owners.length - 1 && (
+                  <Text style={styles.usernameSeparator}> • </Text>
+                )}
+              </View>
             ))}
           </View>
-        )}
+        </View>
+        
+        <TapGestureHandler
+          numberOfTaps={2}
+          onHandlerStateChange={(event) => {
+            if (event.nativeEvent.state === State.ACTIVE) {
+              handleDoubleTap();
+            }
+          }}
+        >
+          <View style={styles.imageGalleryContainer}>
+            <FlatList
+              data={item.imageUrls || [item.imageUrl]}
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              keyExtractor={(_, index) => `${item.id}-image-${index}`}
+              renderItem={({ item: imageUrl }) => (
+                <Image source={{ uri: imageUrl }} style={styles.detailImage} />
+              )}
+            />
+            {(item.imageUrls?.length > 1) && (
+              <View style={styles.paginationDots}>
+                {(item.imageUrls).map((_, index) => (
+                  <View
+                    key={index}
+                    style={[
+                      styles.paginationDot,
+                      index === 0 && styles.paginationDotActive
+                    ]}
+                  />
+                ))}
+              </View>
+            )}
+          </View>
+        </TapGestureHandler>
+
+        {/* Instagram-style action bar */}
+        <View style={styles.actionBar}>
+          <View style={styles.leftActions}>
+            <BreadButton postId={item.id} hasUserBited={hasUserBited} onPress={handleBitePress} />
+          </View>
+        </View>
+
+        {/* Bite count */}
+        <View style={styles.biteCountContainer}>
+          <Text style={styles.biteCountText}>
+            {item.bites} {item.bites === 1 ? 'bite' : 'bites'}
+          </Text>
+        </View>
+
+        <View style={styles.postContent}>
+          <Text style={styles.postCaption}>{item.caption}</Text>
+          <Text style={styles.postDate}>
+            {item.createdAt?.toDate().toLocaleString() || ''}
+          </Text>
+        </View>
       </View>
-      <View style={styles.postContent}>
-        <Text style={styles.postCaption}>{item.caption}</Text>
-        <Text style={styles.postDate}>
-          {item.createdAt?.toDate().toLocaleString() || ''}
-        </Text>
-      </View>
-    </View>
-  );
+    );
+  };
 
   const renderGridPost = ({ item }) => (
     <TouchableOpacity onPress={() => handlePostPress(item)}>
@@ -474,5 +696,30 @@ const styles = StyleSheet.create({
     height: 24,
     justifyContent: 'center',
     alignItems: 'center'
+  },
+  actionBar: {
+    flexDirection: 'row',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  leftActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  biteButton: {
+    padding: 4,
+  },
+  breadEmoji: {
+    width: 38,
+    height: 38,
+  },
+  biteCountContainer: {
+    paddingHorizontal: 12,
+    paddingBottom: 4,
+  },
+  biteCountText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#000',
   }
 }); 
