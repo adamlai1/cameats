@@ -22,7 +22,7 @@ import {
     TouchableOpacity,
     View
 } from 'react-native';
-import { GestureHandlerRootView, State, TapGestureHandler } from 'react-native-gesture-handler';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { auth, db, storage } from '../../firebase';
 
 // Import bread slice images and preload them
@@ -66,8 +66,6 @@ const ProfileScreen = forwardRef((props, ref) => {
   const [showSettings, setShowSettings] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [viewMode, setViewMode] = useState('grid');
-  const [initialScrollIndex, setInitialScrollIndex] = useState(0);
   const [currentImageIndices, setCurrentImageIndices] = useState({});
   const [showFriendRequests, setShowFriendRequests] = useState(false);
   const [showAddFriend, setShowAddFriend] = useState(false);
@@ -75,29 +73,23 @@ const ProfileScreen = forwardRef((props, ref) => {
   const [searchResults, setSearchResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const router = useRouter();
-  const flatListRef = useRef(null);
   const gridListRef = useRef(null);
   const swipeableRef = useRef(null);
 
   // Expose scrollToTop function to parent component
   useImperativeHandle(ref, () => ({
     scrollToTop: () => {
-      if (viewMode === 'detail' && flatListRef.current) {
-        flatListRef.current.scrollToOffset({ offset: 0, animated: true });
-      } else if (viewMode === 'grid' && gridListRef.current) {
+      if (gridListRef.current) {
         gridListRef.current.scrollToOffset({ offset: 0, animated: true });
       }
     }
-  }), [viewMode]);
+  }), []);
 
   // Add this effect to handle tab press
   const pathname = usePathname();
   useEffect(() => {
-    if (pathname === '/tabs/ProfileScreen') {
-      setViewMode('grid');
-      setInitialScrollIndex(0);
-    }
-  }, [pathname]);
+    fetchProfile();
+  }, []);
 
   const fetchProfile = async () => {
     try {
@@ -391,10 +383,31 @@ const ProfileScreen = forwardRef((props, ref) => {
     }
   };
 
-  const handlePostPress = (post) => {
+  const handlePostPress = async (post) => {
     const postIndex = posts.findIndex(p => p.id === post.id);
-    setInitialScrollIndex(postIndex);
-    setViewMode('detail');
+    
+    try {
+      // Instead of passing all posts data through route params (which breaks images),
+      // just pass the essential info and let ProfilePostsView fetch fresh data
+      const essentialData = posts.map(p => ({
+        id: p.id,
+        userId: p.userId,
+        username: p.username,
+        postOwners: p.postOwners || []
+      }));
+      
+      router.push({
+        pathname: '/ProfilePostsView',
+        params: { 
+          postIds: JSON.stringify(essentialData),
+          initialIndex: postIndex.toString(),
+          username: username
+        }
+      });
+    } catch (error) {
+      console.error('Error navigating to posts:', error);
+      Alert.alert('Error', 'Failed to open posts view');
+    }
   };
 
   const handleDeletePost = async (post) => {
@@ -537,164 +550,6 @@ const ProfileScreen = forwardRef((props, ref) => {
     updateFirebase();
   }, [updatePostOptimistic]);
 
-  const handleDoubleTapLike = useCallback((postId) => {
-    const userId = auth.currentUser.uid;
-    
-    // Double-tap should only LIKE, never unlike (Instagram behavior)
-    updatePostOptimistic(postId, (post) => {
-      const currentBitedBy = post.bitedBy || [];
-      const hasUserBited = currentBitedBy.includes(userId);
-      
-      // If already liked, do nothing
-      if (hasUserBited) return post;
-      
-      // If not liked, like it
-      return {
-        ...post,
-        bites: (post.bites || 0) + 1,
-        bitedBy: [...currentBitedBy, userId]
-      };
-    });
-    
-    // Update Firebase in background (only if not already liked)
-    const updateFirebase = async () => {
-      try {
-        const postRef = doc(db, 'posts', postId);
-        const postSnap = await getDoc(postRef);
-        if (!postSnap.exists()) return;
-        
-        const currentData = postSnap.data();
-        const currentBitedBy = currentData.bitedBy || [];
-        const hasUserBited = currentBitedBy.includes(userId);
-        
-        // Only like if not already liked
-        if (!hasUserBited) {
-          await updateDoc(postRef, {
-            bites: increment(1),
-            bitedBy: arrayUnion(userId)
-          });
-        }
-      } catch (error) {
-        console.error('Error updating bites:', error);
-        // If Firebase fails, revert the optimistic update
-        updatePostOptimistic(postId, (post) => {
-          const currentBitedBy = post.bitedBy || [];
-          const hasUserBited = currentBitedBy.includes(userId);
-          
-          // Only revert if we had optimistically liked it
-          if (hasUserBited) {
-            return {
-              ...post,
-              bites: Math.max(0, (post.bites || 0) - 1),
-              bitedBy: currentBitedBy.filter(id => id !== userId)
-            };
-          }
-          return post;
-        });
-      }
-    };
-    
-    updateFirebase();
-  }, [updatePostOptimistic]);
-
-  const renderDetailPost = ({ item }) => {
-    const userId = auth.currentUser.uid;
-    const hasUserBited = item.bitedBy?.includes(userId) || false;
-
-    const handleDoubleTap = () => {
-      // Handle the like logic
-      handleDoubleTapLike(item.id);
-    };
-
-    return (
-      <View style={styles.detailPost}>
-        <View style={styles.postHeader}>
-          <View style={styles.usernameContainer}>
-            {item.owners?.map((owner, index) => (
-              <View key={owner.id} style={styles.usernameWrapper}>
-                <TouchableOpacity onPress={() => handleUsernamePress(owner.id)}>
-                  <Text style={styles.postOwners}>{owner.username}</Text>
-                </TouchableOpacity>
-                {index < item.owners.length - 1 && (
-                  <Text style={styles.usernameSeparator}> • </Text>
-                )}
-              </View>
-            ))}
-          </View>
-          {item.userId === auth.currentUser.uid && (
-            <TouchableOpacity 
-              onPress={() => handleDeletePost(item)}
-              style={styles.deleteButton}
-            >
-              <Ionicons name="trash-outline" size={20} color="#ff3b30" />
-            </TouchableOpacity>
-          )}
-        </View>
-
-        <TapGestureHandler
-          numberOfTaps={2}
-          onHandlerStateChange={(event) => {
-            if (event.nativeEvent.state === State.ACTIVE) {
-              handleDoubleTap();
-            }
-          }}
-        >
-          <View style={styles.imageGalleryContainer}>
-            <FlatList
-              data={item.imageUrls || [item.imageUrl]}
-              horizontal
-              pagingEnabled
-              showsHorizontalScrollIndicator={false}
-              keyExtractor={(_, index) => `${item.id}-image-${index}`}
-              renderItem={({ item: imageUrl }) => (
-                <Image 
-                  source={{ uri: imageUrl }} 
-                  style={styles.detailImage}
-                />
-              )}
-              onScroll={(e) => handleImageScroll(e, item.id)}
-              scrollEventThrottle={16}
-            />
-            {(item.imageUrls?.length > 1 || false) && (
-              <View style={styles.paginationDots}>
-                {(item.imageUrls || []).map((_, index) => (
-                  <View
-                    key={index}
-                    style={[
-                      styles.paginationDot,
-                      index === (currentImageIndices[item.id] || 0) && styles.paginationDotActive
-                    ]}
-                  />
-                ))}
-              </View>
-            )}
-          </View>
-        </TapGestureHandler>
-
-        {/* Instagram-style action bar */}
-        <View style={styles.actionBar}>
-          <View style={styles.leftActions}>
-            <BreadButton postId={item.id} hasUserBited={hasUserBited} onPress={handleBitePress} />
-          </View>
-        </View>
-
-        {/* Bite count */}
-        <View style={styles.biteCountContainer}>
-          <Text style={styles.biteCountText}>
-            {item.bites} {item.bites === 1 ? 'bite' : 'bites'}
-          </Text>
-        </View>
-
-        <View style={styles.postContent}>
-          <Text style={styles.postCaption}>{item.caption}</Text>
-          <Text style={styles.postDate}>
-            {item.createdAt?.toDate().toLocaleString() || ''}
-          </Text>
-        </View>
-      </View>
-    );
-  };
-
   const renderGridPost = ({ item }) => (
     <TouchableOpacity onPress={() => handlePostPress(item)}>
       <Image 
@@ -724,19 +579,6 @@ const ProfileScreen = forwardRef((props, ref) => {
 
   const Header = () => (
     <View style={styles.header}>
-      {viewMode === 'detail' && (
-        <TouchableOpacity 
-          style={styles.backButton}
-          onPress={() => {
-            setViewMode('grid');
-            setInitialScrollIndex(0);
-          }}
-        >
-          <Ionicons name="arrow-back" size={24} color="black" />
-          <Text style={styles.backButtonText}>Back to Grid</Text>
-        </TouchableOpacity>
-      )}
-      
       <View style={styles.headerTop}>
         <Text style={styles.username}>{username}</Text>
         <View style={styles.headerButtons}>
@@ -827,43 +669,6 @@ const ProfileScreen = forwardRef((props, ref) => {
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" />
         </View>
-      );
-    }
-
-    if (viewMode === 'detail') {
-      return (
-        <FlatList
-          key="detail"
-          ref={flatListRef}
-          data={posts}
-          renderItem={renderDetailPost}
-          keyExtractor={item => item.id}
-          ListHeaderComponent={Header}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-            />
-          }
-          initialScrollIndex={initialScrollIndex}
-          onScrollToIndexFailed={info => {
-            const wait = new Promise(resolve => setTimeout(resolve, 500));
-            wait.then(() => {
-              if (flatListRef.current) {
-                flatListRef.current.scrollToIndex({
-                  index: initialScrollIndex,
-                  animated: true,
-                  viewPosition: 0
-                });
-              }
-            });
-          }}
-          getItemLayout={(data, index) => ({
-            length: 550, // Approximate height of each post
-            offset: 550 * index,
-            index,
-          })}
-        />
       );
     }
 
