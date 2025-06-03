@@ -4,8 +4,8 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { usePathname, useRouter } from 'expo-router';
 import { arrayUnion, collection, deleteDoc, doc, getDoc, getDocs, increment, limit, orderBy, query, updateDoc, where } from 'firebase/firestore';
-import { deleteObject, getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { deleteObject, getDownloadURL, uploadBytesResumable } from 'firebase/storage';
+import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
@@ -52,7 +52,7 @@ const BreadButton = React.memo(({ postId, hasUserBited, onPress }) => (
   </TouchableOpacity>
 ));
 
-export default function ProfileScreen() {
+const ProfileScreen = forwardRef((props, ref) => {
   const [username, setUsername] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
@@ -76,7 +76,19 @@ export default function ProfileScreen() {
   const [searching, setSearching] = useState(false);
   const router = useRouter();
   const flatListRef = useRef(null);
+  const gridListRef = useRef(null);
   const swipeableRef = useRef(null);
+
+  // Expose scrollToTop function to parent component
+  useImperativeHandle(ref, () => ({
+    scrollToTop: () => {
+      if (viewMode === 'detail' && flatListRef.current) {
+        flatListRef.current.scrollToOffset({ offset: 0, animated: true });
+      } else if (viewMode === 'grid' && gridListRef.current) {
+        gridListRef.current.scrollToOffset({ offset: 0, animated: true });
+      }
+    }
+  }), [viewMode]);
 
   // Add this effect to handle tab press
   const pathname = usePathname();
@@ -858,6 +870,7 @@ export default function ProfileScreen() {
     return (
       <FlatList
         key="grid"
+        ref={gridListRef}
         data={posts}
         renderItem={renderGridPost}
         keyExtractor={item => item.id}
@@ -1045,7 +1058,7 @@ export default function ProfileScreen() {
       </Modal>
     </SafeAreaView>
   );
-}
+});
 
 const styles = StyleSheet.create({
   container: {
@@ -1618,3 +1631,5 @@ const styles = StyleSheet.create({
     color: '#000',
   },
 });
+
+export default ProfileScreen;

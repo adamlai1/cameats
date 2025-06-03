@@ -3,7 +3,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { arrayRemove, arrayUnion, collection, doc, getDoc, getDocs, increment, orderBy, query, updateDoc } from 'firebase/firestore';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     Dimensions,
@@ -43,13 +43,23 @@ const BreadButton = React.memo(({ postId, hasUserBited, onPress }) => (
   </TouchableOpacity>
 ));
 
-export default function FeedScreen() {
+const FeedScreen = forwardRef((props, ref) => {
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [viewMode, setViewMode] = useState('detail'); // 'detail' or 'grid'
   const [currentImageIndices, setCurrentImageIndices] = useState({}); // Track current image index for each post
   const router = useRouter();
+  const flatListRef = useRef(null);
+
+  // Expose scrollToTop function to parent component
+  useImperativeHandle(ref, () => ({
+    scrollToTop: () => {
+      if (flatListRef.current) {
+        flatListRef.current.scrollToOffset({ offset: 0, animated: true });
+      }
+    }
+  }), []);
 
   const fetchPosts = async () => {
     try {
@@ -458,10 +468,11 @@ export default function FeedScreen() {
             tintColor="#1976d2"
           />
         }
+        ref={flatListRef}
       />
     </SafeAreaView>
   );
-}
+});
 
 const styles = StyleSheet.create({
   container: {
@@ -655,3 +666,5 @@ const styles = StyleSheet.create({
     alignItems: 'center'
   }
 });
+
+export default FeedScreen;

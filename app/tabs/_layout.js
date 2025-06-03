@@ -2,7 +2,7 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import { usePathname } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Dimensions, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { PanGestureHandler, State } from 'react-native-gesture-handler';
 import Animated, {
@@ -23,6 +23,8 @@ export default function TabsLayout() {
   const pathname = usePathname();
   const [currentTabIndex, setCurrentTabIndex] = useState(0);
   const translateX = useSharedValue(0);
+  const feedScreenRef = useRef(null);
+  const profileScreenRef = useRef(null);
 
   const tabs = [
     { name: 'FeedScreen', component: FeedScreen, label: 'Feed', icon: 'home' },
@@ -44,6 +46,18 @@ export default function TabsLayout() {
   };
 
   const navigateToTab = (index) => {
+    // If the feed tab (index 0) is pressed while already active, scroll to top
+    if (index === 0 && currentTabIndex === 0 && feedScreenRef.current) {
+      feedScreenRef.current.scrollToTop();
+      return;
+    }
+    
+    // If the profile tab (index 2) is pressed while already active, scroll to top
+    if (index === 2 && currentTabIndex === 2 && profileScreenRef.current) {
+      profileScreenRef.current.scrollToTop();
+      return;
+    }
+    
     setCurrentTabIndex(index);
     translateX.value = withTiming(-index * SCREEN_WIDTH, { duration: 200 });
   };
@@ -131,7 +145,14 @@ export default function TabsLayout() {
               const Component = tab.component;
               return (
                 <View key={tab.name} style={styles.screen}>
-                  <Component />
+                  <Component ref={(el) => {
+                    if (tab.name === 'FeedScreen') {
+                      feedScreenRef.current = el;
+                    }
+                    if (tab.name === 'ProfileScreen') {
+                      profileScreenRef.current = el;
+                    }
+                  }} />
                 </View>
               );
             })}
