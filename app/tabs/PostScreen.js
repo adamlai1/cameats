@@ -3,7 +3,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useState } from 'react';
 import {
     Alert,
     Dimensions,
@@ -19,9 +19,14 @@ import {
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const IMAGE_SIZE = SCREEN_WIDTH / 3;
 
-export default function PostScreen() {
+const PostScreen = forwardRef((props, ref) => {
   const router = useRouter();
   const [selectedImages, setSelectedImages] = useState([]);
+
+  // Expose takePhoto function to parent component
+  useImperativeHandle(ref, () => ({
+    takePhoto: takePhoto
+  }), []);
 
   useEffect(() => {
     (async () => {
@@ -129,7 +134,7 @@ export default function PostScreen() {
           </View>
     </SafeAreaView>
   );
-}
+});
 
 const styles = StyleSheet.create({
   safeArea: {
@@ -195,3 +200,5 @@ const styles = StyleSheet.create({
     fontWeight: '600'
   }
 });
+
+export default PostScreen;

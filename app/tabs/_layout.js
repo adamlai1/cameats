@@ -24,6 +24,7 @@ export default function TabsLayout() {
   const [currentTabIndex, setCurrentTabIndex] = useState(0);
   const translateX = useSharedValue(0);
   const feedScreenRef = useRef(null);
+  const postScreenRef = useRef(null);
   const profileScreenRef = useRef(null);
 
   const tabs = [
@@ -49,6 +50,12 @@ export default function TabsLayout() {
     // If the feed tab (index 0) is pressed while already active, scroll to top
     if (index === 0 && currentTabIndex === 0 && feedScreenRef.current) {
       feedScreenRef.current.scrollToTop();
+      return;
+    }
+    
+    // If the post tab (index 1) is pressed while already active, take photo
+    if (index === 1 && currentTabIndex === 1 && postScreenRef.current) {
+      postScreenRef.current.takePhoto();
       return;
     }
     
@@ -148,6 +155,9 @@ export default function TabsLayout() {
                   <Component ref={(el) => {
                     if (tab.name === 'FeedScreen') {
                       feedScreenRef.current = el;
+                    }
+                    if (tab.name === 'PostScreen') {
+                      postScreenRef.current = el;
                     }
                     if (tab.name === 'ProfileScreen') {
                       profileScreenRef.current = el;
