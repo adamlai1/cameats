@@ -3,7 +3,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { usePathname, useRouter } from 'expo-router';
-import { arrayUnion, collection, deleteDoc, doc, getDoc, getDocs, increment, limit, orderBy, query, updateDoc, where } from 'firebase/firestore';
+import { arrayUnion, collection, deleteDoc, doc, getDoc, getDocs, increment, limit, orderBy, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
 import { deleteObject, getDownloadURL, uploadBytesResumable } from 'firebase/storage';
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import {
@@ -346,39 +346,75 @@ const ProfileScreen = forwardRef((props, ref) => {
     setUploadingPic(true);
 
     try {
+      // First fetch the image data
       const response = await fetch(uri);
       const blob = await response.blob();
 
-      if (blob.size > 5 * 1024 * 1024) { // 5MB limit
-        Alert.alert('Error', 'Image too large. Please choose a smaller image.');
-        return;
+      // Validate file size (5MB limit)
+      if (blob.size > 5 * 1024 * 1024) {
+        throw new Error('Image size must be less than 5MB');
       }
 
-      // Update path to match security rules structure
-      const filename = `profile_pictures/${auth.currentUser.uid}/${Date.now()}.jpg`;
+      // Create a unique filename with user ID and timestamp
+      const fileExtension = uri.split('.').pop() || 'jpg';
+      const filename = `profile_pics/${auth.currentUser.uid}/profile.${fileExtension}`;
       const storageRef = ref(storage, filename);
+
+      // Get the current user's profile data to check for existing picture
+      const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
+      const userData = userDoc.data();
+      const oldProfilePicUrl = userData?.profilePicUrl;
+
+      // Upload the new image
       const uploadTask = uploadBytesResumable(storageRef, blob);
 
-      uploadTask.on(
-        'state_changed',
-        null,
+      // Monitor upload progress
+      uploadTask.on('state_changed',
+        (snapshot) => {
+          const progress = (snapshot.bytesTransferred / snapshot.totalBytes);
+          console.log('Upload progress:', progress);
+        },
         (error) => {
           console.error('Upload error:', error);
           Alert.alert('Error', 'Failed to upload image. Please try again.');
           setUploadingPic(false);
         },
         async () => {
-          const url = await getDownloadURL(uploadTask.snapshot.ref);
-          await updateDoc(doc(db, 'users', auth.currentUser.uid), {
-            profilePicUrl: url
-          });
-          setProfilePicUrl(url);
-          setUploadingPic(false);
+          try {
+            // Get the download URL
+            const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+
+            // Update the user's profile in Firestore
+            await updateDoc(doc(db, 'users', auth.currentUser.uid), {
+              profilePicUrl: downloadURL,
+              lastProfilePicUpdate: serverTimestamp()
+            });
+
+            // Update local state
+            setProfilePicUrl(downloadURL);
+
+            // If there was an old profile picture, try to delete it
+            if (oldProfilePicUrl) {
+              try {
+                const oldStorageRef = ref(storage, oldProfilePicUrl);
+                await deleteObject(oldStorageRef);
+              } catch (deleteError) {
+                console.log('Error deleting old profile picture:', deleteError);
+                // Don't throw error here as the upload was successful
+              }
+            }
+
+            setUploadingPic(false);
+          } catch (finalizeError) {
+            console.error('Error finalizing upload:', finalizeError);
+            Alert.alert('Error', 'Failed to update profile picture. Please try again.');
+            setUploadingPic(false);
+          }
         }
       );
     } catch (error) {
-      console.error('Error uploading profile picture:', error);
-      Alert.alert('Error', 'Failed to update profile picture. Please try again.');
+      console.error('Profile picture upload error:', error);
+      Alert.alert('Error', error.message || 'Failed to upload profile picture. Please try again.');
       setUploadingPic(false);
     }
   };

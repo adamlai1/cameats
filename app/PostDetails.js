@@ -101,7 +101,7 @@ export default function PostDetails() {
         }
 
         const timestamp = Date.now();
-        const filename = `images/${auth.currentUser.uid}_${timestamp}_${index}.jpg`;
+        const filename = `images/${auth.currentUser.uid}/${timestamp}_${index}.jpg`;
         const storageRef = ref(storage, filename);
 
         await uploadBytes(storageRef, blob);
