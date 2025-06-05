@@ -610,14 +610,6 @@ const ProfileScreen = forwardRef((props, ref) => {
           <Ionicons name="images" size={12} color="#fff" />
         </View>
       )}
-      {item.userId === auth.currentUser.uid && (
-        <TouchableOpacity 
-          onPress={() => handleDeletePost(item)}
-          style={styles.gridDeleteButton}
-        >
-          <Ionicons name="trash-outline" size={16} color="#fff" />
-        </TouchableOpacity>
-      )}
     </TouchableOpacity>
   );
 
@@ -1479,6 +1471,54 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#000',
   },
+  optionsButton: {
+    position: 'absolute',
+    top: 5,
+    right: 5,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    borderRadius: 12,
+    width: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end'
+  },
+  optionsModalContent: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 15,
+    borderTopRightRadius: 15,
+    paddingVertical: 20
+  },
+  optionItem: {
+    paddingVertical: 15,
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee'
+  },
+  optionText: {
+    fontSize: 16,
+    color: '#000'
+  },
+  deleteOption: {
+    borderBottomWidth: 0
+  },
+  deleteOptionText: {
+    fontSize: 16,
+    color: '#ff3b30'
+  },
+  captionInput: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 12,
+    marginVertical: 15,
+    minHeight: 100,
+    textAlignVertical: 'top'
+  }
 });
 
 export default ProfileScreen;

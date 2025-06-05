@@ -1,20 +1,27 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { arrayRemove, arrayUnion, doc, getDoc, increment, updateDoc } from 'firebase/firestore';
+import { arrayRemove, arrayUnion, deleteDoc, doc, getDoc, increment, updateDoc } from 'firebase/firestore';
+import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
     ActivityIndicator,
+    Alert,
     Dimensions,
     FlatList,
     Image,
+    Modal,
     SafeAreaView,
+    ScrollView,
     StyleSheet,
     Text,
+    TextInput,
     TouchableOpacity,
     View
 } from 'react-native';
 import { State, TapGestureHandler } from 'react-native-gesture-handler';
-import { auth, db } from '../firebase';
+import * as Progress from 'react-native-progress';
+import { auth, db, storage } from '../firebase';
 
 // Import bread slice images and preload them
 const breadNormal = require('../assets/images/bread-normal.png');
@@ -43,118 +50,95 @@ export default function ProfilePostsView() {
   const [posts, setPosts] = useState([]);
   const [currentImageIndices, setCurrentImageIndices] = useState({});
   const [loading, setLoading] = useState(true);
+  const [selectedPost, setSelectedPost] = useState(null);
+  const [showPostOptions, setShowPostOptions] = useState(false);
+  const [editingCaption, setEditingCaption] = useState(false);
+  const [newCaption, setNewCaption] = useState('');
+  const [showAddCoOwners, setShowAddCoOwners] = useState(false);
+  const [searchUsername, setSearchUsername] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [selectedFriends, setSelectedFriends] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [friendsList, setFriendsList] = useState([]);
+  const [selectedImages, setSelectedImages] = useState([]);
+  const [showAddPhotos, setShowAddPhotos] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [showManagePhotos, setShowManagePhotos] = useState(false);
 
-  useEffect(() => {
-    const fetchPostsData = async () => {
-      if (!postIdsParam) return;
+  const fetchPostsData = async () => {
+    try {
+      setLoading(true);
+      const postIds = JSON.parse(postIdsParam);
       
-      try {
-        const postIds = JSON.parse(postIdsParam);
-        console.log('Fetching fresh post data for:', postIds.length, 'posts');
-        
-        // Fetch fresh post data from Firestore
-        const fetchedPosts = await Promise.all(
-          postIds.map(async (postInfo) => {
-            try {
-              const postDoc = await getDoc(doc(db, 'posts', postInfo.id));
-              if (!postDoc.exists()) {
-                console.warn('Post not found:', postInfo.id);
-                return null;
-              }
-              
-              const postData = postDoc.data();
-              
-              // Handle old format posts by creating owners array
-              let owners = [];
-              if (postData.postOwners && postData.postOwners.length > 0) {
-                // New format - fetch usernames for any unknown owners
-                const ownerPromises = postData.postOwners.map(async (ownerId) => {
-                  if (!ownerId) return { id: 'unknown', username: 'Unknown' };
-                  
-                  // If we already have the owner data, use it
-                  const existingOwner = postData.owners?.find(o => o.id === ownerId);
-                  if (existingOwner && existingOwner.username !== 'Unknown') {
-                    return existingOwner;
-                  }
-                  
-                  // Otherwise fetch the user data
-                  try {
-                    const userRef = doc(db, 'users', ownerId);
-                    const userDoc = await getDoc(userRef);
-                    if (userDoc.exists()) {
-                      return { id: ownerId, username: userDoc.data().username };
-                    }
-                  } catch (error) {
-                    console.error('Error fetching owner data:', error);
-                  }
-                  return { id: ownerId, username: 'Unknown' };
-                });
-                owners = await Promise.all(ownerPromises);
-              } else {
-                // Old format - fetch username for creator
-                try {
-                  // For old format posts, first try to get the username from the post data
-                  if (postData.username) {
-                    owners = [{ id: postData.userId || 'unknown', username: postData.username }];
-                  } 
-                  // If no username in post data, try to fetch from users collection
-                  else if (postData.userId) {
-                    const userRef = doc(db, 'users', postData.userId);
-                    const userDoc = await getDoc(userRef);
-                    if (userDoc.exists()) {
-                      owners = [{ id: postData.userId, username: userDoc.data().username }];
-                    } else {
-                      owners = [{ id: postData.userId, username: 'Unknown' }];
-                    }
-                  } else {
-                    owners = [{ id: 'unknown', username: 'Unknown' }];
-                  }
-
-                  // If this is the current user's post but somehow doesn't have the right username
-                  if (postData.userId === auth.currentUser.uid && owners[0].username === 'Unknown') {
-                    const currentUserDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
-                    if (currentUserDoc.exists()) {
-                      owners = [{ id: auth.currentUser.uid, username: currentUserDoc.data().username }];
-                    }
-                  }
-                } catch (error) {
-                  console.error('Error fetching creator data:', error);
-                  // Fallback to using the username from post data if available
-                  owners = [{ 
-                    id: postData.userId || 'unknown', 
-                    username: postData.username || 'Unknown' 
-                  }];
-                }
-              }
-
-              return {
-                id: postInfo.id,
-                ...postData,
-                owners: owners,
-                // Ensure like state is properly initialized
-                bitedBy: Array.isArray(postData.bitedBy) ? postData.bitedBy : [],
-                bites: typeof postData.bites === 'number' ? postData.bites : 0
-              };
-            } catch (error) {
-              console.error('Error fetching post:', postInfo.id, error);
+      // Fetch all posts in parallel
+      const fetchedPosts = await Promise.all(
+        postIds.map(async (postInfo) => {
+          try {
+            const postRef = doc(db, 'posts', postInfo.id);
+            const postSnap = await getDoc(postRef);
+            
+            if (!postSnap.exists()) {
+              console.log('Post not found:', postInfo.id);
               return null;
             }
-          })
-        );
-        
-        // Filter out null posts and set the data
-        const validPosts = fetchedPosts.filter(post => post !== null);
-        console.log('Successfully fetched', validPosts.length, 'posts');
-        setPosts(validPosts);
-      } catch (error) {
-        console.error('Error fetching posts data:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
 
+            const postData = postSnap.data();
+
+            // Fetch owners' data
+            const owners = await Promise.all(
+              (postData.postOwners || [postData.userId]).map(async (ownerId) => {
+                const userRef = doc(db, 'users', ownerId);
+                const userSnap = await getDoc(userRef);
+                return {
+                  id: ownerId,
+                  username: userSnap.exists() ? userSnap.data().username : 'Unknown User'
+                };
+              })
+            );
+
+            return {
+              id: postInfo.id,
+              ...postData,
+              owners: owners,
+              // Ensure like state is properly initialized
+              bitedBy: Array.isArray(postData.bitedBy) ? postData.bitedBy : [],
+              bites: typeof postData.bites === 'number' ? postData.bites : 0
+            };
+          } catch (error) {
+            console.error('Error fetching post:', postInfo.id, error);
+            return null;
+          }
+        })
+      );
+      
+      // Filter out null posts and set the data
+      const validPosts = fetchedPosts.filter(post => post !== null);
+      console.log('Successfully fetched', validPosts.length, 'posts');
+      setPosts(validPosts);
+    } catch (error) {
+      console.error('Error fetching posts data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
     fetchPostsData();
   }, [postIdsParam]);
+
+  useEffect(() => {
+    (async () => {
+      const mediaStatus = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      const cameraStatus = await ImagePicker.requestCameraPermissionsAsync();
+      if (mediaStatus.status !== 'granted') {
+        Alert.alert('Permission required', 'Please allow access to your media library to add photos.');
+      }
+      if (cameraStatus.status !== 'granted') {
+        Alert.alert('Permission required', 'Please allow access to your camera to take photos.');
+      }
+    })();
+  }, []);
 
   const handleImageScroll = (event, postId) => {
     const contentOffset = event.nativeEvent.contentOffset.x;
@@ -298,6 +282,315 @@ export default function ProfilePostsView() {
     updateFirebase();
   }, [updatePostOptimistic]);
 
+  const handlePostOptionsPress = (post) => {
+    setSelectedPost(post);
+    setNewCaption(post.caption || '');
+    setShowPostOptions(true);
+  };
+
+  const handleEditCaption = async () => {
+    if (!selectedPost) return;
+    setShowPostOptions(false);
+    setEditingCaption(true);
+  };
+
+  const handleAddCoOwners = () => {
+    setShowPostOptions(false);
+    setShowAddCoOwners(true);
+    setSearchUsername('');
+    setSearchResults([]);
+    setSelectedFriends([]);
+    fetchFriendsList();
+  };
+
+  const handleSearch = (text) => {
+    setSearchUsername(text);
+    if (!text.trim()) {
+      // Show all friends when search is empty
+      setSearchResults(friendsList.filter(friend => 
+        !selectedPost?.postOwners?.includes(friend.id)
+      ));
+      return;
+    }
+
+    // Filter friends list based on search text
+    const results = friendsList.filter(friend => 
+      friend.username.toLowerCase().includes(text.toLowerCase()) &&
+      !selectedPost?.postOwners?.includes(friend.id)
+    );
+    setSearchResults(results);
+  };
+
+  const toggleFriendSelection = (friend) => {
+    setSelectedFriends(prev => {
+      const isSelected = prev.some(f => f.id === friend.id);
+      if (isSelected) {
+        return prev.filter(f => f.id !== friend.id);
+      } else {
+        return [...prev, friend];
+      }
+    });
+  };
+
+  const handleSaveCoOwners = async () => {
+    if (!selectedPost || selectedFriends.length === 0) return;
+
+    try {
+      // Update the post document
+      const postRef = doc(db, 'posts', selectedPost.id);
+      
+      // Add new owners to both postOwners array and owners array
+      const updates = {
+        postOwners: arrayUnion(...selectedFriends.map(f => f.id)),
+        owners: arrayUnion(...selectedFriends.map(f => ({
+          id: f.id,
+          username: f.username
+        })))
+      };
+
+      await updateDoc(postRef, updates);
+
+      // Update local state
+      setPosts(prevPosts => prevPosts.map(post => {
+        if (post.id === selectedPost.id) {
+          return {
+            ...post,
+            postOwners: [...(post.postOwners || []), ...selectedFriends.map(f => f.id)],
+            owners: [...(post.owners || []), ...selectedFriends.map(f => ({
+              id: f.id,
+              username: f.username
+            }))]
+          };
+        }
+        return post;
+      }));
+
+      setShowAddCoOwners(false);
+      Alert.alert('Success', 'Co-owners added successfully!');
+    } catch (error) {
+      console.error('Error adding co-owners:', error);
+      Alert.alert('Error', 'Failed to add co-owners. Please try again.');
+    }
+  };
+
+  const handleAddPhotos = () => {
+    setShowPostOptions(false);
+    setSelectedImages([]);
+    setShowAddPhotos(true);
+  };
+
+  const handleDeletePost = async (post) => {
+    // Only allow deletion if user is the creator
+    if (post.userId !== auth.currentUser.uid) {
+      Alert.alert('Cannot Delete', 'You can only delete posts that you created.');
+      return;
+    }
+
+    Alert.alert(
+      'Delete Post',
+      'Are you sure you want to delete this post? This action cannot be undone.',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel'
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              // Delete the post document
+              await deleteDoc(doc(db, 'posts', post.id));
+
+              // Update local state
+              setPosts(currentPosts => currentPosts.filter(p => p.id !== post.id));
+              Alert.alert('Success', 'Post deleted successfully');
+              router.back(); // Go back after deleting
+            } catch (error) {
+              console.error('Error deleting post:', error);
+              Alert.alert('Error', 'Failed to delete post. Please try again.');
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const fetchFriendsList = async () => {
+    try {
+      const userRef = doc(db, 'users', auth.currentUser.uid);
+      const userDoc = await getDoc(userRef);
+      const userData = userDoc.data();
+      
+      if (userData?.friends?.length) {
+        // Get all friends documents using Promise.all
+        const friendPromises = userData.friends.map(friendId =>
+          getDoc(doc(db, 'users', friendId))
+        );
+        const friendDocs = await Promise.all(friendPromises);
+        const friendsData = friendDocs
+          .filter(doc => doc.exists())
+          .map(doc => ({
+            id: doc.id,
+            username: doc.data().username
+          }));
+
+        setFriendsList(friendsData);
+        // Initially show all friends in search results when no search term
+        setSearchResults(friendsData.filter(friend => 
+          !selectedPost?.postOwners?.includes(friend.id)
+        ));
+      } else {
+        setFriendsList([]);
+        setSearchResults([]);
+      }
+    } catch (error) {
+      console.error('Error fetching friends:', error);
+      Alert.alert('Error', 'Failed to load friends list');
+    }
+  };
+
+  const takePhoto = async () => {
+    try {
+      const result = await ImagePicker.launchCameraAsync({ 
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        quality: 0.2,
+        aspect: [1, 1]
+      });
+      
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        setSelectedImages(prev => [...prev, result.assets[0].uri].slice(0, 10));
+      }
+    } catch (error) {
+      console.error('Error taking photo:', error);
+      Alert.alert('Error', 'Failed to take photo. Please try again.');
+    }
+  };
+
+  const pickImages = async () => {
+    try {
+      let result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsMultipleSelection: true,
+        quality: 0.2,
+        aspect: [1, 1],
+        allowsEditing: false  // Set to false since we're allowing multiple selection
+      });
+
+      if (!result.canceled && result.assets) {
+        setSelectedImages(prev => [...prev, ...result.assets.map(asset => asset.uri)].slice(0, 10));
+      }
+    } catch (error) {
+      console.error('Error picking images:', error);
+      Alert.alert('Error', 'Failed to pick images. Please try again.');
+    }
+  };
+
+  const removeImage = (index) => {
+    setSelectedImages(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleUploadPhotos = async () => {
+    if (!selectedPost || selectedImages.length === 0) {
+      Alert.alert('Error', 'No post selected or no images to upload');
+      return;
+    }
+    
+    setUploading(true);
+    setUploadProgress(0);
+    
+    try {
+      const uploadPromises = selectedImages.map(async (uri, index) => {
+        const response = await fetch(uri);
+        const blob = await response.blob();
+        
+        const filename = `posts/${selectedPost.id}/image_${Date.now()}_${index}.jpg`;
+        const storageRef = ref(storage, filename);
+        
+        await uploadBytes(storageRef, blob);
+        const downloadURL = await getDownloadURL(storageRef);
+        
+        // Update progress after each upload
+        setUploadProgress((index + 1) / selectedImages.length);
+        
+        return downloadURL;
+      });
+
+      const downloadURLs = await Promise.all(uploadPromises);
+      
+      // Update Firestore with new image URLs
+      const postRef = doc(db, 'posts', selectedPost.id);
+      await updateDoc(postRef, {
+        imageUrls: arrayUnion(...downloadURLs)
+      });
+
+      // Clear selected images and close modal
+      setSelectedImages([]);
+      setShowAddPhotos(false);
+      
+      // Refresh the posts data
+      fetchPostsData();
+      
+      Alert.alert('Success', 'Photos uploaded successfully!');
+      
+    } catch (error) {
+      console.error('Error uploading photos:', error);
+      Alert.alert('Error', 'Failed to upload photos. Please try again.');
+    } finally {
+      setUploading(false);
+      setUploadProgress(0);
+    }
+  };
+
+  const handleDeletePhoto = async (photoUrl, postData) => {
+    Alert.alert(
+      'Delete Photo',
+      'Are you sure you want to delete this photo?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel'
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              // Get the storage reference from the URL
+              const photoRef = ref(storage, photoUrl);
+              
+              // Delete from Storage
+              await deleteObject(photoRef);
+              
+              // Update Firestore - remove the URL from the imageUrls array
+              const postRef = doc(db, 'posts', postData.id);
+              await updateDoc(postRef, {
+                imageUrls: postData.imageUrls.filter(url => url !== photoUrl)
+              });
+
+              // Update local state
+              setPosts(prevPosts => prevPosts.map(post => {
+                if (post.id === postData.id) {
+                  return {
+                    ...post,
+                    imageUrls: post.imageUrls.filter(url => url !== photoUrl)
+                  };
+                }
+                return post;
+              }));
+
+              Alert.alert('Success', 'Photo deleted successfully');
+            } catch (error) {
+              console.error('Error deleting photo:', error);
+              Alert.alert('Error', 'Failed to delete photo. Please try again.');
+            }
+          }
+        }
+      ]
+    );
+  };
+
   const renderPost = ({ item }) => {
     const handleDoubleTap = () => {
       handleDoubleTapLike(item.id);
@@ -324,6 +617,14 @@ export default function ProfilePostsView() {
               </View>
             ))}
           </View>
+          {(item.userId === auth.currentUser.uid || item.postOwners?.includes(auth.currentUser.uid)) && (
+            <TouchableOpacity 
+              style={styles.optionsButton}
+              onPress={() => handlePostOptionsPress(item)}
+            >
+              <Ionicons name="ellipsis-horizontal" size={20} color="#000" />
+            </TouchableOpacity>
+          )}
         </View>
         
         <TapGestureHandler
@@ -402,6 +703,347 @@ export default function ProfilePostsView() {
     );
   };
 
+  const renderPostOptionsModal = () => (
+    <Modal
+      animationType="fade"
+      transparent={true}
+      visible={showPostOptions}
+      onRequestClose={() => setShowPostOptions(false)}
+    >
+      <TouchableOpacity 
+        style={styles.modalOverlay} 
+        activeOpacity={1} 
+        onPress={() => setShowPostOptions(false)}
+      >
+        <View style={styles.optionsModalContent}>
+          <TouchableOpacity 
+            style={styles.optionItem}
+            onPress={() => {
+              setShowPostOptions(false);
+              setShowAddPhotos(true);
+            }}
+          >
+            <Text style={styles.optionText}>Add More Photos</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.optionItem}
+            onPress={() => {
+              setShowPostOptions(false);
+              setShowManagePhotos(true);
+            }}
+          >
+            <Text style={styles.optionText}>Manage Photos</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.optionItem}
+            onPress={() => {
+              setShowPostOptions(false);
+              setEditingCaption(true);
+              setNewCaption(selectedPost?.caption || '');
+            }}
+          >
+            <Text style={styles.optionText}>Edit Caption</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.optionItem}
+            onPress={() => {
+              setShowPostOptions(false);
+              setShowAddCoOwners(true);
+              fetchFriendsList();
+            }}
+          >
+            <Text style={styles.optionText}>Add Co-owners</Text>
+          </TouchableOpacity>
+          
+          {selectedPost?.userId === auth.currentUser.uid && (
+            <TouchableOpacity 
+              style={[styles.optionItem, styles.deleteOption]} 
+              onPress={() => {
+                setShowPostOptions(false);
+                handleDeletePost(selectedPost);
+              }}
+            >
+              <Text style={styles.deleteOptionText}>Delete Post</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </TouchableOpacity>
+    </Modal>
+  );
+
+  const renderEditCaptionModal = () => (
+    <Modal
+      animationType="fade"
+      transparent={true}
+      visible={editingCaption}
+      onRequestClose={() => setEditingCaption(false)}
+    >
+      <View style={styles.modalContainer}>
+        <View style={styles.modalContent}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Edit Caption</Text>
+            <TouchableOpacity onPress={() => setEditingCaption(false)}>
+              <Ionicons name="close" size={24} color="black" />
+            </TouchableOpacity>
+          </View>
+
+          <TextInput
+            style={styles.captionInput}
+            value={newCaption}
+            onChangeText={setNewCaption}
+            placeholder="Write a caption..."
+            multiline
+            maxLength={2200}
+          />
+
+          <TouchableOpacity
+            style={styles.saveButton}
+            onPress={async () => {
+              if (!selectedPost) return;
+              try {
+                await updateDoc(doc(db, 'posts', selectedPost.id), {
+                  caption: newCaption
+                });
+                // Update local state
+                setPosts(prevPosts => prevPosts.map(post => 
+                  post.id === selectedPost.id 
+                    ? { ...post, caption: newCaption }
+                    : post
+                ));
+                setEditingCaption(false);
+                Alert.alert('Success', 'Caption updated successfully!');
+              } catch (error) {
+                console.error('Error updating caption:', error);
+                Alert.alert('Error', 'Failed to update caption');
+              }
+            }}
+          >
+            <Text style={styles.saveButtonText}>Save Changes</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+
+  const renderAddCoOwnersModal = () => (
+    <Modal
+      animationType="fade"
+      transparent={true}
+      visible={showAddCoOwners}
+      onRequestClose={() => setShowAddCoOwners(false)}
+    >
+      <View style={styles.modalContainer}>
+        <View style={styles.modalContent}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Add Co-owners</Text>
+            <TouchableOpacity onPress={() => setShowAddCoOwners(false)}>
+              <Ionicons name="close" size={24} color="black" />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.searchContainer}>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search friends"
+              value={searchUsername}
+              onChangeText={handleSearch}
+              autoCapitalize="none"
+            />
+          </View>
+
+          {selectedFriends.length > 0 && (
+            <View style={styles.selectedFriendsContainer}>
+              <Text style={styles.selectedFriendsTitle}>Selected ({selectedFriends.length}):</Text>
+              <ScrollView 
+                horizontal 
+                showsHorizontalScrollIndicator={false}
+                style={styles.selectedFriendsScroll}
+              >
+                {selectedFriends.map(friend => (
+                  <View key={friend.id} style={styles.selectedFriendChip}>
+                    <Text style={styles.selectedFriendUsername}>{friend.username}</Text>
+                    <TouchableOpacity 
+                      onPress={() => toggleFriendSelection(friend)}
+                      style={styles.removeSelectedButton}
+                    >
+                      <Ionicons name="close-circle" size={20} color="#666" />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+
+          <FlatList
+            data={searchResults}
+            keyExtractor={item => `search-${item.id}`}
+            renderItem={({ item }) => (
+              <TouchableOpacity 
+                style={styles.searchResultItem}
+                onPress={() => toggleFriendSelection(item)}
+              >
+                <Text style={styles.searchResultUsername}>{item.username}</Text>
+                <View style={[
+                  styles.checkBox,
+                  selectedFriends.some(f => f.id === item.id) && styles.checkBoxSelected
+                ]}>
+                  {selectedFriends.some(f => f.id === item.id) && (
+                    <Ionicons name="checkmark" size={16} color="#fff" />
+                  )}
+                </View>
+              </TouchableOpacity>
+            )}
+            ListEmptyComponent={
+              <Text style={styles.emptyText}>
+                {friendsList.length === 0 ? "You don't have any friends yet" : "No friends found"}
+              </Text>
+            }
+          />
+
+          {selectedFriends.length > 0 && (
+            <TouchableOpacity
+              style={styles.saveButton}
+              onPress={handleSaveCoOwners}
+            >
+              <Text style={styles.saveButtonText}>Add Selected Co-owners</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+
+  const renderAddPhotosModal = () => (
+    <Modal
+      animationType="fade"
+      transparent={true}
+      visible={showAddPhotos}
+      onRequestClose={() => setShowAddPhotos(false)}
+    >
+      <View style={styles.modalContainer}>
+        <View style={styles.modalContent}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Add More Photos</Text>
+            <TouchableOpacity onPress={() => setShowAddPhotos(false)}>
+              <Ionicons name="close" size={24} color="black" />
+            </TouchableOpacity>
+          </View>
+
+          {selectedImages.length > 0 ? (
+            <View style={styles.selectedImagesContainer}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                {selectedImages.map((uri, index) => (
+                  <View key={index} style={styles.selectedImageWrapper}>
+                    <Image source={{ uri }} style={styles.selectedImage} />
+                    <TouchableOpacity
+                      style={styles.removeImageButton}
+                      onPress={() => removeImage(index)}
+                    >
+                      <Ionicons name="close-circle" size={24} color="#ff3b30" />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </ScrollView>
+            </View>
+          ) : (
+            <View style={styles.emptyImagesContainer}>
+              <Text style={styles.emptyText}>No images selected</Text>
+            </View>
+          )}
+
+          <View style={styles.photoButtonsContainer}>
+            <TouchableOpacity
+              style={[styles.photoButton, styles.cameraButton]}
+              onPress={takePhoto}
+            >
+              <Ionicons name="camera" size={24} color="#fff" />
+              <Text style={styles.buttonText}>Take Photo</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.photoButton, styles.galleryButton]}
+              onPress={pickImages}
+            >
+              <Ionicons name="images" size={24} color="#fff" />
+              <Text style={styles.buttonText}>Choose from Gallery</Text>
+            </TouchableOpacity>
+          </View>
+
+          {selectedImages.length > 0 && (
+            <TouchableOpacity
+              style={[styles.saveButton, uploading && styles.disabledButton]}
+              onPress={handleUploadPhotos}
+              disabled={uploading}
+            >
+              <Text style={styles.saveButtonText}>
+                {uploading ? 'Adding Photos...' : 'Add Selected Photos'}
+              </Text>
+            </TouchableOpacity>
+          )}
+
+          {uploading && (
+            <View style={styles.progressContainer}>
+              <Progress.Bar 
+                progress={uploadProgress} 
+                width={200} 
+                color="#007AFF"
+              />
+              <Text style={styles.progressText}>
+                {Math.round(uploadProgress * 100)}%
+              </Text>
+            </View>
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+
+  const renderManagePhotosModal = () => (
+    <Modal
+      animationType="fade"
+      transparent={true}
+      visible={showManagePhotos}
+      onRequestClose={() => setShowManagePhotos(false)}
+    >
+      <View style={styles.modalContainer}>
+        <View style={styles.modalContent}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Manage Photos</Text>
+            <TouchableOpacity onPress={() => setShowManagePhotos(false)}>
+              <Ionicons name="close" size={24} color="black" />
+            </TouchableOpacity>
+          </View>
+
+          {selectedPost?.imageUrls?.length > 0 ? (
+            <ScrollView style={styles.managePhotosContainer}>
+              {selectedPost.imageUrls.map((photoUrl, index) => (
+                <View key={index} style={styles.managePhotoItem}>
+                  <Image 
+                    source={{ uri: photoUrl }} 
+                    style={styles.managePhotoImage} 
+                  />
+                  <TouchableOpacity
+                    style={styles.deletePhotoButton}
+                    onPress={() => handleDeletePhoto(photoUrl, selectedPost)}
+                  >
+                    <Ionicons name="trash-outline" size={24} color="#ff3b30" />
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </ScrollView>
+          ) : (
+            <View style={styles.emptyPhotosContainer}>
+              <Text style={styles.emptyText}>No photos in this post</Text>
+            </View>
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
@@ -442,6 +1084,11 @@ export default function ProfilePostsView() {
           index,
         })}
       />
+      {renderPostOptionsModal()}
+      {renderEditCaptionModal()}
+      {renderAddCoOwnersModal()}
+      {renderAddPhotosModal()}
+      {renderManagePhotosModal()}
     </SafeAreaView>
   );
 }
@@ -581,5 +1228,250 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#666',
     marginTop: 8
+  },
+  optionsButton: {
+    padding: 8
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end'
+  },
+  optionsModalContent: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 15,
+    borderTopRightRadius: 15,
+    paddingVertical: 20
+  },
+  optionItem: {
+    paddingVertical: 15,
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee'
+  },
+  optionText: {
+    fontSize: 16,
+    color: '#000'
+  },
+  deleteOption: {
+    borderBottomWidth: 0
+  },
+  deleteOptionText: {
+    fontSize: 16,
+    color: '#ff3b30'
+  },
+  modalContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)'
+  },
+  modalContent: {
+    backgroundColor: 'white',
+    borderRadius: 15,
+    padding: 20,
+    width: '90%',
+    maxHeight: '80%',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 4
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 15,
+    paddingBottom: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee'
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '600'
+  },
+  captionInput: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 12,
+    marginVertical: 15,
+    minHeight: 100,
+    textAlignVertical: 'top'
+  },
+  saveButton: {
+    backgroundColor: '#007AFF',
+    borderRadius: 8,
+    padding: 12,
+    alignItems: 'center',
+    marginTop: 15
+  },
+  saveButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600'
+  },
+  searchContainer: {
+    marginBottom: 15
+  },
+  searchInput: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 10,
+    fontSize: 16
+  },
+  selectedFriendsContainer: {
+    maxHeight: 80,
+    marginBottom: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+    paddingBottom: 15
+  },
+  selectedFriendsTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 10,
+    color: '#666'
+  },
+  selectedFriendsScroll: {
+    flexDirection: 'row'
+  },
+  selectedFriendChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f0f0f0',
+    borderRadius: 20,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    marginRight: 8
+  },
+  selectedFriendUsername: {
+    fontSize: 14,
+    marginRight: 4
+  },
+  removeSelectedButton: {
+    marginLeft: 4
+  },
+  searchResultItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee'
+  },
+  searchResultUsername: {
+    fontSize: 16,
+    color: '#000'
+  },
+  checkBox: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#ddd',
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  checkBoxSelected: {
+    backgroundColor: '#007AFF',
+    borderColor: '#007AFF'
+  },
+  emptyText: {
+    textAlign: 'center',
+    color: '#666',
+    padding: 20
+  },
+  selectedImagesContainer: {
+    height: 120,
+    marginBottom: 20
+  },
+  selectedImageWrapper: {
+    position: 'relative',
+    marginRight: 10
+  },
+  selectedImage: {
+    width: 100,
+    height: 100,
+    borderRadius: 8
+  },
+  removeImageButton: {
+    position: 'absolute',
+    top: -8,
+    right: -8,
+    backgroundColor: '#fff',
+    borderRadius: 12
+  },
+  emptyImagesContainer: {
+    height: 120,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f8f8f8',
+    borderRadius: 8,
+    marginBottom: 20
+  },
+  photoButtonsContainer: {
+    gap: 15,
+    marginBottom: 20
+  },
+  photoButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 12,
+    borderRadius: 8
+  },
+  cameraButton: {
+    backgroundColor: '#34C759' // Green color for camera
+  },
+  galleryButton: {
+    backgroundColor: '#007AFF' // Blue color for gallery
+  },
+  buttonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 8
+  },
+  disabledButton: {
+    opacity: 0.5
+  },
+  progressContainer: {
+    alignItems: 'center',
+    marginTop: 20
+  },
+  progressText: {
+    marginTop: 8,
+    fontSize: 14,
+    color: '#666'
+  },
+  managePhotosContainer: {
+    maxHeight: '80%'
+  },
+  managePhotoItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 15,
+    backgroundColor: '#f8f8f8',
+    borderRadius: 8,
+    padding: 10
+  },
+  managePhotoImage: {
+    width: 100,
+    height: 100,
+    borderRadius: 8,
+    marginRight: 15
+  },
+  deletePhotoButton: {
+    padding: 10
+  },
+  emptyPhotosContainer: {
+    padding: 20,
+    alignItems: 'center'
   }
 }); 
