@@ -136,30 +136,92 @@ const ProfileScreen = forwardRef((props, ref) => {
       );
       
       const snapshot = await getDocs(postsQuery);
-      const allPosts = snapshot.docs.map(doc => {
-        const data = doc.data();
+      const allPosts = await Promise.all(snapshot.docs.map(async docSnapshot => {
+        const data = docSnapshot.data();
+        
+        // Handle old format posts by creating owners array
+        let owners = [];
+        if (data.postOwners && data.postOwners.length > 0) {
+          // New format - fetch usernames for any unknown owners
+          const ownerPromises = data.postOwners.map(async (ownerId) => {
+            if (!ownerId) return { id: 'unknown', username: 'Unknown' };
+            
+            // If we already have the owner data, use it
+            const existingOwner = data.owners?.find(o => o.id === ownerId);
+            if (existingOwner && existingOwner.username !== 'Unknown') {
+              return existingOwner;
+            }
+            
+            // Otherwise fetch the user data
+            try {
+              const userRef = doc(db, 'users', ownerId);
+              const userDoc = await getDoc(userRef);
+              if (userDoc.exists()) {
+                return { id: ownerId, username: userDoc.data().username };
+              }
+            } catch (error) {
+              console.error('Error fetching owner data:', error);
+            }
+            return { id: ownerId, username: 'Unknown' };
+          });
+          owners = await Promise.all(ownerPromises);
+        } else {
+          // Old format - fetch username for creator
+          try {
+            // For old format posts, first try to get the username from the post data
+            if (data.username) {
+              owners = [{ id: data.userId || 'unknown', username: data.username }];
+            } 
+            // If no username in post data, try to fetch from users collection
+            else if (data.userId) {
+              const userRef = doc(db, 'users', data.userId);
+              const userDoc = await getDoc(userRef);
+              if (userDoc.exists()) {
+                owners = [{ id: data.userId, username: userDoc.data().username }];
+              } else {
+                owners = [{ id: data.userId, username: 'Unknown' }];
+              }
+            } else {
+              owners = [{ id: 'unknown', username: 'Unknown' }];
+            }
+
+            // If this is the current user's post but somehow doesn't have the right username
+            if (data.userId === auth.currentUser.uid && owners[0].username === 'Unknown') {
+              const currentUserDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
+              if (currentUserDoc.exists()) {
+                owners = [{ id: auth.currentUser.uid, username: currentUserDoc.data().username }];
+              }
+            }
+          } catch (error) {
+            console.error('Error fetching creator data:', error);
+            // Fallback to using the username from post data if available
+            owners = [{ 
+              id: data.userId || 'unknown', 
+              username: data.username || 'Unknown' 
+            }];
+          }
+        }
+        
         return {
-          id: doc.id,
+          id: docSnapshot.id || `generated-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           ...data,
+          owners: owners,
           // Ensure like state is always properly initialized
           bitedBy: Array.isArray(data.bitedBy) ? data.bitedBy : [],
           bites: typeof data.bites === 'number' ? data.bites : 0
         };
-      });
+      }));
 
       // Filter posts where this user is an owner
       const userPosts = allPosts.filter(post => {
         // Check if user is in postOwners array (new format)
         const isOwner = post.postOwners?.includes(auth.currentUser.uid);
         
-        // Check if user is in taggedFriends array (old format)
-        const isTagged = post.taggedFriendIds?.includes(auth.currentUser.uid);
-        
-        // Check if user is the original creator
+        // Check if user is the original creator (old format)
         const isCreator = post.userId === auth.currentUser.uid;
         
-        // Post should show if user is either an owner, tagged, or creator
-        return isOwner || isTagged || isCreator;
+        // Post should show if user is either an owner or creator
+        return isOwner || isCreator;
       });
 
       setPosts(userPosts);
@@ -660,7 +722,7 @@ const ProfileScreen = forwardRef((props, ref) => {
         ref={gridListRef}
         data={posts}
         renderItem={renderGridPost}
-        keyExtractor={item => item.id}
+        keyExtractor={item => item.id ? `post-${item.id}` : `generated-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`}
         numColumns={3}
         ListHeaderComponent={Header}
         refreshControl={
@@ -714,7 +776,7 @@ const ProfileScreen = forwardRef((props, ref) => {
 
             <FlatList
               data={searchResults}
-              keyExtractor={item => item.id}
+              keyExtractor={item => `search-${item.id}`}
               renderItem={({ item }) => (
                 <View style={styles.searchResultItem}>
                   <Text style={styles.searchResultUsername}>{item.username}</Text>
@@ -766,7 +828,7 @@ const ProfileScreen = forwardRef((props, ref) => {
 
             <FlatList
               data={friendRequests}
-              keyExtractor={item => item.id}
+              keyExtractor={item => `request-${item.id}`}
               renderItem={({ item }) => (
                 <View style={styles.requestItem}>
                   <View style={styles.requestInfo}>

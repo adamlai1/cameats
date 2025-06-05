@@ -2,7 +2,18 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { arrayRemove, arrayUnion, collection, doc, getDoc, getDocs, increment, orderBy, query, updateDoc } from 'firebase/firestore';
+import {
+    arrayRemove,
+    arrayUnion,
+    collection,
+    doc,
+    getDoc,
+    getDocs,
+    increment,
+    orderBy,
+    query,
+    updateDoc
+} from 'firebase/firestore';
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import {
     ActivityIndicator,
@@ -80,19 +91,68 @@ const FeedScreen = forwardRef((props, ref) => {
       );
       
       const snapshot = await getDocs(postsQuery);
-      const allPosts = snapshot.docs.map(doc => {
-        const data = doc.data();
+      const allPosts = await Promise.all(snapshot.docs.map(async docSnapshot => {
+        const data = docSnapshot.data();
+        
+        // Handle old format posts by creating owners array
+        let owners = [];
+        if (data.postOwners && data.postOwners.length > 0) {
+          // New format - fetch usernames for any unknown owners
+          const ownerPromises = data.postOwners.map(async (ownerId) => {
+            if (!ownerId) return { id: 'unknown', username: 'Unknown' };
+            
+            // If we already have the owner data, use it
+            const existingOwner = data.owners?.find(o => o.id === ownerId);
+            if (existingOwner && existingOwner.username !== 'Unknown') {
+              return existingOwner;
+            }
+            
+            // Otherwise fetch the user data
+            try {
+              const userRef = doc(db, 'users', ownerId);
+              const userDoc = await getDoc(userRef);
+              if (userDoc.exists()) {
+                return { id: ownerId, username: userDoc.data().username };
+              }
+            } catch (error) {
+              console.error('Error fetching owner data:', error);
+            }
+            return { id: ownerId, username: 'Unknown' };
+          });
+          owners = await Promise.all(ownerPromises);
+        } else {
+          // Old format - fetch username for creator
+          try {
+            // Check if we have a valid userId
+            if (!data.userId) {
+              owners = [{ id: 'unknown', username: 'Unknown' }];
+            } else {
+              const userRef = doc(db, 'users', data.userId);
+              const userDoc = await getDoc(userRef);
+              if (userDoc.exists()) {
+                owners = [{ id: data.userId, username: userDoc.data().username }];
+              } else {
+                owners = [{ id: data.userId, username: data.username || 'Unknown' }];
+              }
+            }
+          } catch (error) {
+            console.error('Error fetching creator data:', error);
+            owners = [{ id: data.userId || 'unknown', username: data.username || 'Unknown' }];
+          }
+        }
+        
         return {
-          id: doc.id,
+          id: docSnapshot.id || `generated-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           ...data,
+          owners: owners,
           // Ensure like state is always properly initialized
           bitedBy: Array.isArray(data.bitedBy) ? data.bitedBy : [],
           bites: typeof data.bites === 'number' ? data.bites : 0
         };
-      });
+      }));
 
       // Filter posts that are relevant to the user (created by friends or self)
-      const filteredPosts = allPosts.filter(post => {
+      const filteredPosts = await Promise.all(allPosts.map(async post => {
         // Check new format (postOwners)
         const isRelevantPostOwner = post.postOwners?.some(ownerId => 
           relevantUserIds.includes(ownerId)
@@ -106,10 +166,10 @@ const FeedScreen = forwardRef((props, ref) => {
 
         const isRelevant = isRelevantPostOwner || isRelevantTagged || isRelevantCreator;
 
-        return isRelevant;
-      });
+        return isRelevant ? post : null;
+      }));
 
-      setPosts(filteredPosts);
+      setPosts(filteredPosts.filter(post => post !== null));
     } catch (error) {
       console.error('Error fetching posts:', error);
     } finally {
@@ -310,12 +370,12 @@ const FeedScreen = forwardRef((props, ref) => {
       <View style={styles.postContainer}>
         <View style={styles.postHeader}>
           <View style={styles.usernameContainer}>
-            {item.owners?.map((owner, index) => (
-              <View key={owner.id} style={styles.usernameWrapper}>
+            {(item.owners || [{ id: item.userId, username: item.username || 'Unknown' }]).map((owner, index) => (
+              <View key={`${item.id}-owner-${owner.id}-${index}`} style={styles.usernameWrapper}>
                 <TouchableOpacity onPress={() => handleUsernamePress(owner.id)}>
                   <Text style={styles.username}>{owner.username}</Text>
                 </TouchableOpacity>
-                {index < item.owners.length - 1 && (
+                {index < (item.owners?.length || 1) - 1 && (
                   <Text style={styles.usernameSeparator}> • </Text>
                 )}
               </View>
@@ -337,7 +397,7 @@ const FeedScreen = forwardRef((props, ref) => {
               horizontal
               pagingEnabled
               showsHorizontalScrollIndicator={false}
-              keyExtractor={(_, index) => `${item.id}-image-${index}`}
+              keyExtractor={(url, index) => `${item.id}-image-${index}-${url}`}
               renderItem={({ item: imageUrl }) => (
                 <Image 
                   source={{ uri: imageUrl }} 
@@ -352,7 +412,7 @@ const FeedScreen = forwardRef((props, ref) => {
               <View style={styles.paginationDots}>
                 {(item.imageUrls || []).map((_, index) => (
                   <View
-                    key={index}
+                    key={`${item.id}-dot-${index}`}
                     style={[
                       styles.paginationDot,
                       index === (currentImageIndices[item.id] || 0) && styles.paginationDotActive
@@ -456,7 +516,7 @@ const FeedScreen = forwardRef((props, ref) => {
       <FlatList
         data={posts}
         renderItem={viewMode === 'detail' ? renderDetailPost : renderGridPost}
-        keyExtractor={item => item.id}
+        keyExtractor={item => item.id ? `post-${item.id}` : `generated-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`}
         numColumns={viewMode === 'grid' ? 3 : 1}
         key={viewMode}
         ListHeaderComponent={Header}

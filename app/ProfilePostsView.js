@@ -64,28 +64,69 @@ export default function ProfilePostsView() {
               
               const postData = postDoc.data();
               
-              // Fetch owners data
+              // Handle old format posts by creating owners array
               let owners = [];
               if (postData.postOwners && postData.postOwners.length > 0) {
+                // New format - fetch usernames for any unknown owners
                 const ownerPromises = postData.postOwners.map(async (ownerId) => {
+                  if (!ownerId) return { id: 'unknown', username: 'Unknown' };
+                  
+                  // If we already have the owner data, use it
+                  const existingOwner = postData.owners?.find(o => o.id === ownerId);
+                  if (existingOwner && existingOwner.username !== 'Unknown') {
+                    return existingOwner;
+                  }
+                  
+                  // Otherwise fetch the user data
                   try {
-                    const userDoc = await getDoc(doc(db, 'users', ownerId));
+                    const userRef = doc(db, 'users', ownerId);
+                    const userDoc = await getDoc(userRef);
                     if (userDoc.exists()) {
-                      const userData = userDoc.data();
-                      return { id: ownerId, username: userData.username };
+                      return { id: ownerId, username: userDoc.data().username };
                     }
-                    return { id: ownerId, username: 'Unknown' };
                   } catch (error) {
                     console.error('Error fetching owner data:', error);
-                    return { id: ownerId, username: 'Unknown' };
                   }
+                  return { id: ownerId, username: 'Unknown' };
                 });
                 owners = await Promise.all(ownerPromises);
               } else {
-                // Fallback to original creator
-                owners = [{ id: postData.userId, username: postData.username || 'Unknown' }];
+                // Old format - fetch username for creator
+                try {
+                  // For old format posts, first try to get the username from the post data
+                  if (postData.username) {
+                    owners = [{ id: postData.userId || 'unknown', username: postData.username }];
+                  } 
+                  // If no username in post data, try to fetch from users collection
+                  else if (postData.userId) {
+                    const userRef = doc(db, 'users', postData.userId);
+                    const userDoc = await getDoc(userRef);
+                    if (userDoc.exists()) {
+                      owners = [{ id: postData.userId, username: userDoc.data().username }];
+                    } else {
+                      owners = [{ id: postData.userId, username: 'Unknown' }];
+                    }
+                  } else {
+                    owners = [{ id: 'unknown', username: 'Unknown' }];
+                  }
+
+                  // If this is the current user's post but somehow doesn't have the right username
+                  if (postData.userId === auth.currentUser.uid && owners[0].username === 'Unknown') {
+                    const currentUserDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
+                    if (currentUserDoc.exists()) {
+                      owners = [{ id: auth.currentUser.uid, username: currentUserDoc.data().username }];
+                    }
+                  }
+                } catch (error) {
+                  console.error('Error fetching creator data:', error);
+                  // Fallback to using the username from post data if available
+                  owners = [{ 
+                    id: postData.userId || 'unknown', 
+                    username: postData.username || 'Unknown' 
+                  }];
+                }
               }
-              
+
               return {
                 id: postInfo.id,
                 ...postData,
