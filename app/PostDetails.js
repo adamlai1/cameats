@@ -33,6 +33,8 @@ export default function PostDetails() {
   const [caption, setCaption] = useState('');
   const [friends, setFriends] = useState([]);
   const [selectedFriends, setSelectedFriends] = useState([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filteredFriends, setFilteredFriends] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
@@ -57,6 +59,7 @@ export default function PostDetails() {
               username: doc.data().username
             }));
           setFriends(friendsList);
+          setFilteredFriends(friendsList); // Initialize filtered list with all friends
         }
       } catch (error) {
         console.error('Error fetching friends:', error);
@@ -66,6 +69,20 @@ export default function PostDetails() {
 
     fetchFriends();
   }, []);
+
+  // Add search handler
+  const handleSearch = (text) => {
+    setSearchQuery(text);
+    if (!text.trim()) {
+      setFilteredFriends(friends); // Show all friends when search is empty
+      return;
+    }
+    // Filter friends based on search text
+    const filtered = friends.filter(friend =>
+      friend.username.toLowerCase().includes(text.toLowerCase())
+    );
+    setFilteredFriends(filtered);
+  };
 
   const toggleFriend = (friend) => {
     setSelectedFriends(prev => {
@@ -216,7 +233,36 @@ export default function PostDetails() {
         />
       </View>
 
-      <Text style={styles.sectionTitle}>Tag Friends</Text>
+      <View style={styles.tagFriendsSection}>
+        <Text style={styles.sectionTitle}>Tag Friends</Text>
+        <View style={styles.searchContainer}>
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search friends..."
+            value={searchQuery}
+            onChangeText={handleSearch}
+            autoCapitalize="none"
+          />
+        </View>
+
+        {selectedFriends.length > 0 && (
+          <View style={styles.selectedFriendsContainer}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              {selectedFriends.map(friend => (
+                <View key={friend.id} style={styles.selectedFriendChip}>
+                  <Text style={styles.selectedFriendUsername}>{friend.username}</Text>
+                  <TouchableOpacity
+                    onPress={() => toggleFriend(friend)}
+                    style={styles.removeSelectedButton}
+                  >
+                    <Ionicons name="close-circle" size={20} color="#666" />
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        )}
+      </View>
     </>
   );
 
@@ -252,7 +298,7 @@ export default function PostDetails() {
         >
           {renderHeader()}
           
-          {friends.map(item => (
+          {filteredFriends.map(item => (
             <TouchableOpacity
               key={item.id}
               style={[
@@ -271,9 +317,13 @@ export default function PostDetails() {
 
         {uploading && (
           <View style={styles.progressContainer}>
-            <Progress.Bar progress={progress} width={200} />
+            <Progress.Bar 
+              progress={progress} 
+              width={200} 
+              color="#007AFF"
+            />
             <Text style={styles.progressText}>
-              Uploading {Math.round(progress * 100)}%
+              {Math.round(progress * 100)}%
             </Text>
           </View>
         )}
@@ -368,12 +418,46 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
     padding: 8
   },
+  tagFriendsSection: {
+    marginTop: 20,
+    paddingHorizontal: 15
+  },
+  searchContainer: {
+    marginBottom: 15
+  },
+  searchInput: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 10,
+    fontSize: 16,
+    backgroundColor: '#f8f8f8'
+  },
+  selectedFriendsContainer: {
+    marginBottom: 15,
+    height: 40
+  },
+  selectedFriendChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f0f0f0',
+    borderRadius: 20,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    marginRight: 8
+  },
+  selectedFriendUsername: {
+    fontSize: 14,
+    marginRight: 4
+  },
+  removeSelectedButton: {
+    marginLeft: 4
+  },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
-    marginBottom: 16,
-    marginHorizontal: 16,
-    marginTop: 10
+    marginBottom: 10,
+    color: '#262626'
   },
   friendItem: {
     flexDirection: 'row',

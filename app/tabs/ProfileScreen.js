@@ -1,6 +1,7 @@
 // app/tabs/ProfileScreen.js
 
 import { Ionicons } from '@expo/vector-icons';
+import { manipulateAsync } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { usePathname, useRouter } from 'expo-router';
 import { arrayUnion, collection, deleteDoc, doc, getDoc, getDocs, increment, limit, orderBy, query, updateDoc, where } from 'firebase/firestore';
@@ -13,6 +14,7 @@ import {
     FlatList,
     Image,
     Modal,
+    Platform,
     RefreshControl,
     SafeAreaView,
     ScrollView,
@@ -381,22 +383,47 @@ const ProfileScreen = forwardRef((props, ref) => {
   const pickProfilePic = async (type) => {
     try {
       let result;
-      if (type === 'camera') {
-        result = await ImagePicker.launchCameraAsync({
-          allowsEditing: true,
-          aspect: [1, 1],
-          quality: 0.7
-        });
+      const options = {
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.7,
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        presentationStyle: 'overFullScreen'
+      };
+
+      // Add platform-specific options
+      if (Platform.OS === 'android') {
+        options.cropperCircleOverlay = true;
       } else {
-        result = await ImagePicker.launchImageLibraryAsync({
-          allowsEditing: true,
-          aspect: [1, 1],
-          quality: 0.7
-        });
+        // On iOS, we'll handle the circular crop through image manipulation
+        options.allowsEditing = true;
       }
 
-      if (!result.canceled) {
-        await uploadProfilePic(result.assets[0].uri);
+      if (type === 'camera') {
+        result = await ImagePicker.launchCameraAsync(options);
+      } else {
+        result = await ImagePicker.launchImageLibraryAsync(options);
+      }
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        // For iOS, we'll handle the circular crop through image manipulation
+        if (Platform.OS === 'ios') {
+          const manipulateResult = await manipulateAsync(
+            result.assets[0].uri,
+            [
+              { crop: {
+                height: result.assets[0].height,
+                width: result.assets[0].width,
+                originX: 0,
+                originY: 0
+              }},
+            ],
+            { compress: 0.7, format: 'jpeg' }
+          );
+          await uploadProfilePic(manipulateResult.uri);
+        } else {
+          await uploadProfilePic(result.assets[0].uri);
+        }
       }
     } catch (error) {
       console.error('Error picking image:', error);
@@ -939,6 +966,7 @@ const styles = StyleSheet.create({
   profilePicImage: {
     width: '100%',
     height: '100%',
+    borderRadius: 40,
     resizeMode: 'cover'
   },
   editIconContainer: {
