@@ -4,20 +4,20 @@ import { addDoc, collection, doc, getDoc, serverTimestamp } from 'firebase/fires
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { useEffect, useRef, useState } from 'react';
 import {
-    Alert,
-    Dimensions,
-    FlatList,
-    Image,
-    Keyboard,
-    KeyboardAvoidingView,
-    Platform,
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View
+  Alert,
+  Dimensions,
+  FlatList,
+  Image,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import * as Progress from 'react-native-progress';
 import { auth, db, storage } from '../firebase';
@@ -144,7 +144,7 @@ export default function PostDetails() {
         .map(doc => ({
           id: doc.id,
           username: doc.data().username,
-          displayName: doc.data().displayName || doc.data().username
+          profilePicUrl: doc.data().profilePicUrl || null
         }));
 
       if (!owners.length) {
@@ -157,9 +157,7 @@ export default function PostDetails() {
         imageUrls: imageUrls,
         caption: caption || '',
         userId: auth.currentUser.uid,
-        username: owners.find(owner => owner.id === auth.currentUser.uid)?.username || 'Unknown',
         owners: owners,
-        postOwners: owners.map(owner => owner.id),
         createdAt: serverTimestamp(),
       };
 

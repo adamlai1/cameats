@@ -679,14 +679,12 @@ export default function ProfilePostsView() {
           </View>
         </View>
 
-        {/* Bite count */}
-        {item.bites > 0 && (
-          <View style={styles.biteCountContainer}>
-            <Text style={styles.biteCountText}>
-              {item.bites} {item.bites === 1 ? 'bite' : 'bites'}
-            </Text>
-          </View>
-        )}
+        {/* Bite count - always show, even when 0 */}
+        <View style={styles.biteCountContainer}>
+          <Text style={styles.biteCountText}>
+            {item.bites || 0} {(item.bites || 0) === 1 ? 'bite' : 'bites'}
+          </Text>
+        </View>
 
         <View style={styles.postFooter}>
           {item.caption && (

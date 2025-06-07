@@ -3,16 +3,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import {
-    arrayRemove,
-    arrayUnion,
-    collection,
     deleteDoc,
     doc,
-    getDoc,
-    getDocs,
-    increment,
-    orderBy,
-    query,
     updateDoc
 } from 'firebase/firestore';
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
@@ -31,8 +23,13 @@ import {
     TouchableOpacity,
     View
 } from 'react-native';
-import { State, TapGestureHandler } from 'react-native-gesture-handler';
+import { PinchGestureHandler, State, TapGestureHandler } from 'react-native-gesture-handler';
 import { auth, db } from '../../firebase';
+import { PostSkeleton } from '../components/ui/SkeletonLoader';
+import * as postService from '../services/postService';
+
+const POSTS_PER_PAGE = 5;
+const WINDOW_WIDTH = Dimensions.get('window').width;
 
 // Import bread slice images and preload them
 const breadNormal = require('../../assets/images/bread-normal.png');
@@ -62,6 +59,9 @@ const FeedScreen = forwardRef((props, ref) => {
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMorePosts, setHasMorePosts] = useState(true);
+  const [lastVisible, setLastVisible] = useState(null);
   const [viewMode, setViewMode] = useState('detail'); // 'detail' or 'grid'
   const [currentImageIndices, setCurrentImageIndices] = useState({}); // Track current image index for each post
   const [selectedPost, setSelectedPost] = useState(null);
@@ -70,6 +70,8 @@ const FeedScreen = forwardRef((props, ref) => {
   const [newCaption, setNewCaption] = useState('');
   const router = useRouter();
   const flatListRef = useRef(null);
+  const [scale, setScale] = useState(1);
+  const pinchRef = useRef();
 
   // Expose scrollToTop function to parent component
   useImperativeHandle(ref, () => ({
@@ -80,264 +82,124 @@ const FeedScreen = forwardRef((props, ref) => {
     }
   }), []);
 
-  const fetchPosts = async () => {
+  const fetchPosts = async (lastPost = null) => {
     try {
-      // Get current user's friends first
-      const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
-      if (!userDoc.exists()) {
-        console.error('User profile not found');
-        return;
+      const newPosts = await postService.fetchPosts(null, lastPost, POSTS_PER_PAGE);
+      
+      // Pre-fetch images for smoother loading
+      newPosts.forEach(post => {
+        // Pre-fetch post images
+        if (post.imageUrls) {
+          post.imageUrls.forEach(url => Image.prefetch(url));
+        } else if (post.imageUrl) {
+          Image.prefetch(post.imageUrl);
+        }
+
+        // Pre-fetch user profile pictures
+        if (post.postOwners) {
+          post.postOwners.forEach(owner => {
+            if (owner.profilePicUrl) {
+              Image.prefetch(owner.profilePicUrl);
+            }
+          });
+        }
+      });
+
+      // Update pagination state
+      setHasMorePosts(newPosts.length === POSTS_PER_PAGE);
+      if (newPosts.length > 0) {
+        setLastVisible(newPosts[newPosts.length - 1]);
       }
 
-      const friends = userDoc.data().friends || [];
-      const relevantUserIds = [auth.currentUser.uid, ...friends];
-
-      // Get all posts and filter client-side
-      const postsQuery = query(
-        collection(db, 'posts'),
-        orderBy('createdAt', 'desc')
-      );
-      
-      const snapshot = await getDocs(postsQuery);
-      const allPosts = await Promise.all(snapshot.docs.map(async docSnapshot => {
-        const data = docSnapshot.data();
-        
-        // Handle old format posts by creating owners array
-        let owners = [];
-        if (data.postOwners && data.postOwners.length > 0) {
-          // New format - fetch usernames for any unknown owners
-          const ownerPromises = data.postOwners.map(async (ownerId) => {
-            if (!ownerId) return { id: 'unknown', username: 'Unknown' };
-            
-            // If we already have the owner data, use it
-            const existingOwner = data.owners?.find(o => o.id === ownerId);
-            if (existingOwner && existingOwner.username !== 'Unknown') {
-              return existingOwner;
-            }
-            
-            // Otherwise fetch the user data
-            try {
-              const userRef = doc(db, 'users', ownerId);
-              const userDoc = await getDoc(userRef);
-              if (userDoc.exists()) {
-                return { id: ownerId, username: userDoc.data().username };
-              }
-            } catch (error) {
-              console.error('Error fetching owner data:', error);
-            }
-            return { id: ownerId, username: 'Unknown' };
-          });
-          owners = await Promise.all(ownerPromises);
-        } else {
-          // Old format - fetch username for creator
-          try {
-            // Check if we have a valid userId
-            if (!data.userId) {
-              owners = [{ id: 'unknown', username: 'Unknown' }];
-            } else {
-              const userRef = doc(db, 'users', data.userId);
-              const userDoc = await getDoc(userRef);
-              if (userDoc.exists()) {
-                owners = [{ id: data.userId, username: userDoc.data().username }];
-              } else {
-                owners = [{ id: data.userId, username: data.username || 'Unknown' }];
-              }
-            }
-          } catch (error) {
-            console.error('Error fetching creator data:', error);
-            owners = [{ id: data.userId || 'unknown', username: data.username || 'Unknown' }];
-          }
-        }
-        
-        return {
-          id: docSnapshot.id || `generated-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          ...data,
-          owners: owners,
-          // Ensure like state is always properly initialized
-          bitedBy: Array.isArray(data.bitedBy) ? data.bitedBy : [],
-          bites: typeof data.bites === 'number' ? data.bites : 0
-        };
-      }));
-
-      // Filter posts that are relevant to the user (created by friends or self)
-      const filteredPosts = await Promise.all(allPosts.map(async post => {
-        // Check new format (postOwners)
-        const isRelevantPostOwner = post.postOwners?.some(ownerId => 
-          relevantUserIds.includes(ownerId)
-        );
-
-        // Check old format (taggedFriends and original poster)
-        const isRelevantTagged = post.taggedFriendIds?.some(taggedId => 
-          relevantUserIds.includes(taggedId)
-        );
-        const isRelevantCreator = relevantUserIds.includes(post.userId);
-
-        const isRelevant = isRelevantPostOwner || isRelevantTagged || isRelevantCreator;
-
-        return isRelevant ? post : null;
-      }));
-
-      setPosts(filteredPosts.filter(post => post !== null));
+      return newPosts;
     } catch (error) {
       console.error('Error fetching posts:', error);
-    } finally {
-      setLoading(false);
+      return [];
     }
   };
 
+  const loadInitialPosts = async () => {
+    setLoading(true);
+    const initialPosts = await fetchPosts();
+    setPosts(initialPosts);
+    setLoading(false);
+  };
+
+  const loadMorePosts = async () => {
+    if (loadingMore || !hasMorePosts) return;
+
+    setLoadingMore(true);
+    const morePosts = await fetchPosts(posts[posts.length - 1]);
+    setPosts(prev => [...prev, ...morePosts]);
+    setLoadingMore(false);
+  };
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    const refreshedPosts = await fetchPosts();
+    setPosts(refreshedPosts);
+    setRefreshing(false);
+  };
+
+  useEffect(() => {
+    loadInitialPosts();
+  }, []);
+
   const updatePostOptimistic = useCallback((postId, updateFn) => {
     setPosts(prevPosts => {
-      // Find the index once
       const postIndex = prevPosts.findIndex(post => post.id === postId);
       if (postIndex === -1) return prevPosts;
       
       const currentPost = prevPosts[postIndex];
       const updatedPost = updateFn(currentPost);
       
-      // Only update if there's actually a change
       if (updatedPost === currentPost) return prevPosts;
       
-      // Create new array with minimal changes
       const newPosts = [...prevPosts];
       newPosts[postIndex] = updatedPost;
       return newPosts;
     });
   }, []);
 
-  const handleBitePress = useCallback((postId) => {
-    const userId = auth.currentUser.uid;
-    
-    // First, update UI immediately for instant feedback
-    updatePostOptimistic(postId, (post) => {
-      const currentBitedBy = post.bitedBy || [];
-      const hasUserBited = currentBitedBy.includes(userId);
-      
-      if (hasUserBited) {
-        // Unlike
-        return {
-          ...post,
-          bites: Math.max(0, (post.bites || 0) - 1),
-          bitedBy: currentBitedBy.filter(id => id !== userId)
-        };
-      } else {
-        // Like
-        return {
-          ...post,
-          bites: (post.bites || 0) + 1,
-          bitedBy: [...currentBitedBy, userId]
-        };
-      }
-    });
-    
-    // Then, update Firebase in the background (don't wait for this)
-    const updateFirebase = async () => {
-      try {
-        const postRef = doc(db, 'posts', postId);
-        const postSnap = await getDoc(postRef);
-        if (!postSnap.exists()) return;
-        
-        const currentData = postSnap.data();
-        const currentBitedBy = currentData.bitedBy || [];
-        const hasUserBited = currentBitedBy.includes(userId);
-        
-        if (hasUserBited) {
-          await updateDoc(postRef, {
-            bites: increment(-1),
-            bitedBy: arrayRemove(userId)
-          });
-        } else {
-          await updateDoc(postRef, {
-            bites: increment(1),
-            bitedBy: arrayUnion(userId)
-          });
-        }
-      } catch (error) {
-        console.error('Error updating bites:', error);
-        // If Firebase fails, revert the optimistic update
-        updatePostOptimistic(postId, (post) => {
-          const currentBitedBy = post.bitedBy || [];
-          const hasUserBited = currentBitedBy.includes(userId);
-          
-          // Revert the change
-          if (hasUserBited) {
-            return {
-              ...post,
-              bites: (post.bites || 0) + 1,
-              bitedBy: [...currentBitedBy, userId]
-            };
-          } else {
-            return {
-              ...post,
-              bites: Math.max(0, (post.bites || 0) - 1),
-              bitedBy: currentBitedBy.filter(id => id !== userId)
-            };
-          }
-        });
-      }
-    };
-    
-    updateFirebase();
+  const handleBitePress = useCallback(async (postId) => {
+    try {
+      const hasUserBited = await postService.toggleBite(postId);
+      updatePostOptimistic(postId, (post) => ({
+        ...post,
+        bites: hasUserBited ? (post.bites || 0) + 1 : Math.max(0, (post.bites || 0) - 1),
+        bitedBy: hasUserBited 
+          ? [...(post.bitedBy || []), auth.currentUser.uid]
+          : (post.bitedBy || []).filter(id => id !== auth.currentUser.uid)
+      }));
+    } catch (error) {
+      console.error('Error toggling bite:', error);
+    }
   }, [updatePostOptimistic]);
 
-  const handleDoubleTapLike = useCallback((postId) => {
-    const userId = auth.currentUser.uid;
-    
-    // Double-tap should only LIKE, never unlike (Instagram behavior)
-    updatePostOptimistic(postId, (post) => {
-      const currentBitedBy = post.bitedBy || [];
-      const hasUserBited = currentBitedBy.includes(userId);
-      
-      // If already liked, do nothing
-      if (hasUserBited) return post;
-      
-      // If not liked, like it
-      return {
+  const handleDoubleTapLike = useCallback(async (postId) => {
+    const post = posts.find(p => p.id === postId);
+    if (!post || post.bitedBy?.includes(auth.currentUser.uid)) return;
+
+    try {
+      await postService.toggleBite(postId);
+      updatePostOptimistic(postId, (post) => ({
         ...post,
         bites: (post.bites || 0) + 1,
-        bitedBy: [...currentBitedBy, userId]
-      };
-    });
-    
-    // Update Firebase in background (only if not already liked)
-    const updateFirebase = async () => {
-      try {
-        const postRef = doc(db, 'posts', postId);
-        const postSnap = await getDoc(postRef);
-        if (!postSnap.exists()) return;
-        
-        const currentData = postSnap.data();
-        const currentBitedBy = currentData.bitedBy || [];
-        const hasUserBited = currentBitedBy.includes(userId);
-        
-        // Only like if not already liked
-        if (!hasUserBited) {
-          await updateDoc(postRef, {
-            bites: increment(1),
-            bitedBy: arrayUnion(userId)
-          });
-        }
-      } catch (error) {
-        console.error('Error updating bites:', error);
-        // If Firebase fails, revert the optimistic update
-        updatePostOptimistic(postId, (post) => {
-          const currentBitedBy = post.bitedBy || [];
-          const hasUserBited = currentBitedBy.includes(userId);
-          
-          // Only revert if we had optimistically liked it
-          if (hasUserBited) {
-            return {
-              ...post,
-              bites: Math.max(0, (post.bites || 0) - 1),
-              bitedBy: currentBitedBy.filter(id => id !== userId)
-            };
-          }
-          return post;
-        });
-      }
-    };
-    
-    updateFirebase();
-  }, [updatePostOptimistic]);
+        bitedBy: [...(post.bitedBy || []), auth.currentUser.uid]
+      }));
+    } catch (error) {
+      console.error('Error handling double tap like:', error);
+    }
+  }, [posts, updatePostOptimistic]);
+
+  const handleImageScroll = useCallback((event, postId) => {
+    const contentOffset = event.nativeEvent.contentOffset.x;
+    const imageIndex = Math.round(contentOffset / WINDOW_WIDTH);
+    setCurrentImageIndices(prev => ({
+      ...prev,
+      [postId]: imageIndex
+    }));
+  }, []);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -347,15 +209,6 @@ const FeedScreen = forwardRef((props, ref) => {
 
   const toggleViewMode = () => {
     setViewMode(prev => prev === 'detail' ? 'grid' : 'detail');
-  };
-
-  const handleScroll = (event, postId) => {
-    const contentOffset = event.nativeEvent.contentOffset.x;
-    const index = Math.round(contentOffset / Dimensions.get('window').width);
-    setCurrentImageIndices(prev => ({
-      ...prev,
-      [postId]: index
-    }));
   };
 
   const handleUsernamePress = (userId) => {
@@ -436,18 +289,18 @@ const FeedScreen = forwardRef((props, ref) => {
       <View style={styles.postContainer}>
         <View style={styles.postHeader}>
           <View style={styles.usernameContainer}>
-            {(item.owners || [{ id: item.userId, username: item.username || 'Unknown' }]).map((owner, index) => (
+            {(item.postOwners || [{ id: item.userId, username: item.username || 'Unknown' }]).map((owner, index) => (
               <View key={`${item.id}-owner-${owner.id}-${index}`} style={styles.usernameWrapper}>
                 <TouchableOpacity onPress={() => handleUsernamePress(owner.id)}>
                   <Text style={styles.username}>{owner.username}</Text>
                 </TouchableOpacity>
-                {index < (item.owners?.length || 1) - 1 && (
+                {index < (item.postOwners?.length || 1) - 1 && (
                   <Text style={styles.usernameSeparator}> • </Text>
                 )}
               </View>
             ))}
           </View>
-          {(item.userId === auth.currentUser.uid || item.postOwners?.includes(auth.currentUser.uid)) && (
+          {(item.userId === auth.currentUser.uid || item.postOwners?.some(owner => owner.id === auth.currentUser.uid)) && (
             <TouchableOpacity 
               style={styles.optionsButton}
               onPress={() => handlePostOptionsPress(item)}
@@ -458,12 +311,12 @@ const FeedScreen = forwardRef((props, ref) => {
         </View>
         
         <TapGestureHandler
-          numberOfTaps={2}
-          onHandlerStateChange={(event) => {
-            if (event.nativeEvent.state === State.ACTIVE) {
+          onHandlerStateChange={({ nativeEvent }) => {
+            if (nativeEvent.state === State.ACTIVE) {
               handleDoubleTap();
             }
           }}
+          numberOfTaps={2}
         >
           <View style={styles.imageGalleryContainer}>
             <FlatList
@@ -479,17 +332,17 @@ const FeedScreen = forwardRef((props, ref) => {
                   resizeMode="cover"
                 />
               )}
-              onScroll={(e) => handleScroll(e, item.id)}
+              onScroll={(event) => handleImageScroll(event, item.id)}
               scrollEventThrottle={16}
             />
-            {(item.imageUrls?.length > 1 || false) && (
+            {(item.imageUrls?.length > 1 || (item.imageUrl && item.imageUrls?.length !== 1)) && (
               <View style={styles.paginationDots}>
-                {(item.imageUrls || []).map((_, index) => (
+                {(item.imageUrls || [item.imageUrl]).map((_, index) => (
                   <View
-                    key={`${item.id}-dot-${index}`}
+                    key={index}
                     style={[
                       styles.paginationDot,
-                      index === (currentImageIndices[item.id] || 0) && styles.paginationDotActive
+                      currentImageIndices[item.id] === index && styles.paginationDotActive
                     ]}
                   />
                 ))}
@@ -501,14 +354,18 @@ const FeedScreen = forwardRef((props, ref) => {
         {/* Instagram-style action bar - positioned like Instagram */}
         <View style={styles.actionBar}>
           <View style={styles.leftActions}>
-            <BreadButton postId={item.id} hasUserBited={hasUserBited} onPress={handleBitePress} />
+            <BreadButton
+              postId={item.id}
+              hasUserBited={hasUserBited}
+              onPress={handleBitePress}
+            />
           </View>
         </View>
 
         {/* Bite count */}
         <View style={styles.biteCountContainer}>
           <Text style={styles.biteCountText}>
-            {item.bites} {item.bites === 1 ? 'bite' : 'bites'}
+            {item.bites || 0} {item.bites === 1 ? 'bite' : 'bites'}
           </Text>
         </View>
 
@@ -520,16 +377,28 @@ const FeedScreen = forwardRef((props, ref) => {
         </View>
       </View>
     );
-  }, [handleBitePress, handleDoubleTapLike, handleUsernamePress, handleScroll, currentImageIndices]);
+  }, [handleBitePress, handleDoubleTapLike, handleUsernamePress, handleImageScroll, currentImageIndices]);
 
-  const renderGridPost = ({ item }) => {
+  const renderGridPost = ({ item, index }) => {
     const userId = auth.currentUser.uid;
     const hasUserBited = item.bitedBy?.includes(userId) || false;
+
+    const handleGridPostPress = () => {
+      setViewMode('detail');
+      // Wait for view mode change to take effect and list to re-render
+      setTimeout(() => {
+        flatListRef.current?.scrollToIndex({
+          index,
+          animated: true,
+          viewPosition: 0
+        });
+      }, 100);
+    };
 
     return (
       <TouchableOpacity 
         style={styles.gridItem}
-        onPress={() => setViewMode('detail')}
+        onPress={handleGridPostPress}
       >
         <Image 
           source={{ uri: item.imageUrls?.[0] || item.imageUrl }} 
@@ -556,6 +425,15 @@ const FeedScreen = forwardRef((props, ref) => {
       </TouchableOpacity>
     );
   };
+
+  // Add getItemLayout for more accurate scrolling
+  const getItemLayout = useCallback((data, index) => ({
+    length: viewMode === 'grid' ? WINDOW_WIDTH / 3 : 550, // Adjust 550 based on your post height
+    offset: viewMode === 'grid' 
+      ? Math.floor(index / 3) * (WINDOW_WIDTH / 3)
+      : index * 550,
+    index,
+  }), [viewMode]);
 
   const Header = () => (
     <View style={styles.header}>
@@ -665,42 +543,93 @@ const FeedScreen = forwardRef((props, ref) => {
     </Modal>
   );
 
-  useEffect(() => {
-    setLoading(true);
-    fetchPosts().finally(() => setLoading(false));
+  const onPinchGestureEvent = useCallback(({ nativeEvent }) => {
+    setScale(nativeEvent.scale);
   }, []);
+
+  const onPinchHandlerStateChange = useCallback(({ nativeEvent }) => {
+    if (nativeEvent.oldState === State.ACTIVE) {
+      // If scale is less than 0.7 (pinched out), switch to grid view
+      if (scale < 0.7 && viewMode === 'detail') {
+        setViewMode('grid');
+      }
+      // If scale is more than 1.3 (pinched in), switch to detail view
+      else if (scale > 1.3 && viewMode === 'grid') {
+        setViewMode('detail');
+      }
+      // Reset scale
+      setScale(1);
+    }
+  }, [scale, viewMode]);
 
   if (loading && !refreshing) {
     return (
       <SafeAreaView style={styles.container}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#1976d2" />
-        </View>
+        <FlatList
+          data={[1, 2, 3]} // Show 3 skeleton loaders
+          renderItem={() => <PostSkeleton />}
+          keyExtractor={(_, index) => `skeleton-${index}`}
+        />
       </SafeAreaView>
     );
   }
 
   return (
     <SafeAreaView style={styles.container}>
-      <FlatList
-        data={posts}
-        renderItem={viewMode === 'detail' ? renderDetailPost : renderGridPost}
-        keyExtractor={item => item.id ? `post-${item.id}` : `generated-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`}
-        numColumns={viewMode === 'grid' ? 3 : 1}
-        key={viewMode}
-        ListHeaderComponent={Header}
-        contentContainerStyle={styles.contentContainer}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor="#1976d2"
+      <PinchGestureHandler
+        ref={pinchRef}
+        onGestureEvent={onPinchGestureEvent}
+        onHandlerStateChange={onPinchHandlerStateChange}
+      >
+        <View style={styles.container}>
+          <FlatList
+            ref={flatListRef}
+            data={posts}
+            renderItem={viewMode === 'detail' ? renderDetailPost : renderGridPost}
+            keyExtractor={item => item.id ? `post-${item.id}` : `generated-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`}
+            numColumns={viewMode === 'grid' ? 3 : 1}
+            key={viewMode}
+            ListHeaderComponent={Header}
+            contentContainerStyle={styles.contentContainer}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                tintColor="#1976d2"
+              />
+            }
+            onEndReached={loadMorePosts}
+            onEndReachedThreshold={0.5}
+            getItemLayout={getItemLayout}
+            onScrollToIndexFailed={info => {
+              const wait = new Promise(resolve => setTimeout(resolve, 100));
+              wait.then(() => {
+                flatListRef.current?.scrollToIndex({
+                  index: info.index,
+                  animated: true,
+                  viewPosition: 0
+                });
+              });
+            }}
+            ListFooterComponent={
+              loadingMore ? (
+                <View style={styles.loadingMore}>
+                  <ActivityIndicator color="#1976d2" />
+                </View>
+              ) : null
+            }
+            ListEmptyComponent={
+              !loading && (
+                <View style={styles.emptyContainer}>
+                  <Text style={styles.emptyText}>No posts yet</Text>
+                </View>
+              )
+            }
           />
-        }
-        ref={flatListRef}
-      />
-      {renderPostOptionsModal()}
-      {renderEditCaptionModal()}
+          {renderPostOptionsModal()}
+          {renderEditCaptionModal()}
+        </View>
+      </PinchGestureHandler>
     </SafeAreaView>
   );
 });
@@ -968,6 +897,18 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600'
+  },
+  loadingMore: {
+    paddingVertical: 16,
+    alignItems: 'center'
+  },
+  emptyContainer: {
+    padding: 20,
+    alignItems: 'center'
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#666'
   }
 });
 
