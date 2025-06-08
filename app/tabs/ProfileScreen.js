@@ -8,24 +8,25 @@ import { arrayUnion, collection, deleteDoc, doc, getDoc, getDocs, increment, lim
 import { deleteObject } from 'firebase/storage';
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  Dimensions,
-  FlatList,
-  Image,
-  Modal,
-  Platform,
-  RefreshControl,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View
+    ActivityIndicator,
+    Alert,
+    Dimensions,
+    FlatList,
+    Image,
+    Modal,
+    Platform,
+    RefreshControl,
+    SafeAreaView,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View
 } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { auth, db, storage } from '../../firebase';
+import { useAuth } from '../contexts/AuthContext';
 import { uploadProfilePicture } from '../utils/profilePicture';
 
 // Import bread slice images and preload them
@@ -56,6 +57,7 @@ const BreadButton = React.memo(({ postId, hasUserBited, onPress }) => (
 ));
 
 const ProfileScreen = forwardRef((props, ref) => {
+  const { logout } = useAuth();
   const [username, setUsername] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
@@ -754,6 +756,32 @@ const ProfileScreen = forwardRef((props, ref) => {
     );
   };
 
+  const handleLogout = async () => {
+    Alert.alert(
+      'Logout',
+      'Are you sure you want to logout?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel'
+        },
+        {
+          text: 'Logout',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await logout();
+              router.replace('/');
+            } catch (error) {
+              console.error('Error logging out:', error);
+              Alert.alert('Error', 'Failed to logout. Please try again.');
+            }
+          }
+        }
+      ]
+    );
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <GestureHandlerRootView style={{ flex: 1 }}>
@@ -877,9 +905,9 @@ const ProfileScreen = forwardRef((props, ref) => {
         onRequestClose={() => setShowSettings(false)}
       >
         <View style={styles.modalContainer}>
-          <View style={styles.modalContent}>
+          <View style={[styles.modalContent, { width: '90%', maxHeight: '80%' }]}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Edit Profile</Text>
+              <Text style={styles.modalTitle}>Settings</Text>
               <TouchableOpacity onPress={() => setShowSettings(false)}>
                 <Ionicons name="close" size={24} color="black" />
               </TouchableOpacity>
@@ -900,6 +928,7 @@ const ProfileScreen = forwardRef((props, ref) => {
                 value={username}
                 onChangeText={setUsername}
                 placeholder="Enter username"
+                autoCapitalize="none"
               />
 
               <Text style={styles.inputLabel}>Bio</Text>
@@ -907,18 +936,24 @@ const ProfileScreen = forwardRef((props, ref) => {
                 style={[styles.input, styles.bioInput]}
                 value={bio}
                 onChangeText={setBio}
-                placeholder="Write a bio..."
+                placeholder="Write something about yourself"
                 multiline
-                numberOfLines={4}
                 maxLength={150}
               />
               <Text style={styles.charCount}>{bio.length}/150</Text>
 
-              <TouchableOpacity
-                style={styles.saveButton}
+              <TouchableOpacity 
+                style={styles.saveButton} 
                 onPress={handleSaveSettings}
               >
                 <Text style={styles.saveButtonText}>Save Changes</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={[styles.saveButton, styles.logoutButton]} 
+                onPress={handleLogout}
+              >
+                <Text style={styles.saveButtonText}>Logout</Text>
               </TouchableOpacity>
             </ScrollView>
           </View>
@@ -1546,6 +1581,10 @@ const styles = StyleSheet.create({
     marginVertical: 15,
     minHeight: 100,
     textAlignVertical: 'top'
+  },
+  logoutButton: {
+    backgroundColor: '#ff3b30',
+    marginTop: 40
   }
 });
 

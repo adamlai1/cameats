@@ -5,13 +5,14 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { useEffect } from 'react';
 import { Image } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { AuthProvider } from '../app/contexts/AuthContext';
 import { auth } from '../firebase';
 
 // Import bread images
 const breadNormal = require('../assets/images/bread-normal.png');
 const breadBitten = require('../assets/images/bread-bitten.png');
 
-export default function RootLayout() {
+function RootLayoutNav() {
   const router = useRouter();
 
   useEffect(() => {
@@ -44,9 +45,24 @@ export default function RootLayout() {
           animation: 'slide_from_right',
         }}
       >
-        <Stack.Screen name="index" />
-        <Stack.Screen name="login" />
-        <Stack.Screen name="signup" />
+        <Stack.Screen 
+          name="index"
+          options={{
+            headerShown: false,
+          }}
+        />
+        <Stack.Screen 
+          name="login"
+          options={{
+            headerShown: false,
+          }}
+        />
+        <Stack.Screen 
+          name="signup"
+          options={{
+            headerShown: false,
+          }}
+        />
         <Stack.Screen 
           name="tabs"
           options={{
@@ -62,5 +78,13 @@ export default function RootLayout() {
         />
       </Stack>
     </GestureHandlerRootView>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    <AuthProvider>
+      <RootLayoutNav />
+    </AuthProvider>
   );
 }
