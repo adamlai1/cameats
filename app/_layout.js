@@ -1,20 +1,16 @@
 // app/_layout.js
 
-import { Stack, useRouter } from 'expo-router';
-import { onAuthStateChanged } from 'firebase/auth';
+import { Stack } from 'expo-router';
 import { useEffect } from 'react';
 import { Image } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AuthProvider } from '../app/contexts/AuthContext';
-import { auth } from '../firebase';
 
 // Import bread images
 const breadNormal = require('../assets/images/bread-normal.png');
 const breadBitten = require('../assets/images/bread-bitten.png');
 
 function RootLayoutNav() {
-  const router = useRouter();
-
   useEffect(() => {
     // Load bread images in the background
     Image.prefetch(Image.resolveAssetSource(breadNormal).uri).catch(err => 
@@ -23,18 +19,6 @@ function RootLayoutNav() {
     Image.prefetch(Image.resolveAssetSource(breadBitten).uri).catch(err => 
       console.warn('Failed to preload bitten bread:', err)
     );
-
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        // User is signed in
-        router.replace('/tabs/FeedScreen');
-      } else {
-        // No user is signed in
-        router.replace('/');
-      }
-    });
-
-    return () => unsubscribe();
   }, []);
 
   return (

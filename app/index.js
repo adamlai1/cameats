@@ -1,10 +1,25 @@
 // app/index.js
 
 import { useRouter } from 'expo-router';
+import { useEffect } from 'react';
 import { Button, StyleSheet, Text, View } from 'react-native';
+import { useAuth } from './contexts/AuthContext';
 
 export default function Home() {
   const router = useRouter();
+  const { user, loading } = useAuth();
+
+  useEffect(() => {
+    // If user is authenticated, redirect immediately
+    if (!loading && user) {
+      router.replace('/tabs/FeedScreen');
+    }
+  }, [user, loading, router]);
+
+  // Don't render anything while loading or if user is authenticated
+  if (loading || user) {
+    return <View style={styles.container} />;
+  }
 
   return (
     <View style={styles.container}>

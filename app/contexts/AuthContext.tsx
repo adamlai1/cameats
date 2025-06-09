@@ -1,5 +1,6 @@
 import { User } from 'firebase/auth';
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { View } from 'react-native';
 import { auth } from '../../firebase';
 import AuthService from '../services/auth.service';
 
@@ -108,7 +109,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthContext.Provider value={value}>
-      {!loading && children}
+      {loading ? (
+        <View style={{ flex: 1, backgroundColor: '#fff' }} />
+      ) : (
+        children
+      )}
     </AuthContext.Provider>
   );
 }

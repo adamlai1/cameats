@@ -2,29 +2,22 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import {
-    deleteDoc,
-    doc,
-    updateDoc
-} from 'firebase/firestore';
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import {
     ActivityIndicator,
-    Alert,
     Dimensions,
     FlatList,
     Image,
-    Modal,
     RefreshControl,
     SafeAreaView,
     StyleSheet,
     Text,
-    TextInput,
     TouchableOpacity,
     View
 } from 'react-native';
 import { PinchGestureHandler, State, TapGestureHandler } from 'react-native-gesture-handler';
-import { auth, db } from '../../firebase';
+import { auth } from '../../firebase';
+import PostManagement from '../components/PostManagement';
 import { PostSkeleton } from '../components/ui/SkeletonLoader';
 import * as postService from '../services/postService';
 
@@ -66,8 +59,6 @@ const FeedScreen = forwardRef((props, ref) => {
   const [currentImageIndices, setCurrentImageIndices] = useState({}); // Track current image index for each post
   const [selectedPost, setSelectedPost] = useState(null);
   const [showPostOptions, setShowPostOptions] = useState(false);
-  const [editingCaption, setEditingCaption] = useState(false);
-  const [newCaption, setNewCaption] = useState('');
   const router = useRouter();
   const flatListRef = useRef(null);
   const [scale, setScale] = useState(1);
@@ -220,60 +211,21 @@ const FeedScreen = forwardRef((props, ref) => {
 
   const handlePostOptionsPress = (post) => {
     setSelectedPost(post);
-    setNewCaption(post.caption || '');
     setShowPostOptions(true);
   };
 
-  const handleEditCaption = async () => {
-    if (!selectedPost) return;
-    setShowPostOptions(false);
-    setEditingCaption(true);
-  };
-
-  const handleAddCoOwners = () => {
-    // We'll implement this next
-    setShowPostOptions(false);
-  };
-
-  const handleAddPhotos = () => {
-    // We'll implement this next
-    setShowPostOptions(false);
+  const handleUpdatePost = (updatedPost) => {
+    setPosts(prevPosts => prevPosts.map(post => 
+      post.id === updatedPost.id ? updatedPost : post
+    ));
   };
 
   const handleDeletePost = async (post) => {
-    // Only allow deletion if user is the creator
-    if (post.userId !== auth.currentUser.uid) {
-      Alert.alert('Cannot Delete', 'You can only delete posts that you created.');
-      return;
-    }
-
-    Alert.alert(
-      'Delete Post',
-      'Are you sure you want to delete this post? This action cannot be undone.',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel'
-        },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              // Delete the post document
-              await deleteDoc(doc(db, 'posts', post.id));
-
-              // Update local state
-              setPosts(currentPosts => currentPosts.filter(p => p.id !== post.id));
-              Alert.alert('Success', 'Post deleted successfully');
-            } catch (error) {
-              console.error('Error deleting post:', error);
-              Alert.alert('Error', 'Failed to delete post. Please try again.');
-            }
-          }
-        }
-      ]
-    );
+    const { handleDeletePost: deletePostUtil } = await import('../utils/postOptionsUtils');
+    
+    await deletePostUtil(post, (postId) => {
+      setPosts(currentPosts => currentPosts.filter(p => p.id !== postId));
+    });
   };
 
   const renderDetailPost = useCallback(({ item }) => {
@@ -448,100 +400,7 @@ const FeedScreen = forwardRef((props, ref) => {
     </View>
   );
 
-  const renderPostOptionsModal = () => (
-    <Modal
-      animationType="slide"
-      transparent={true}
-      visible={showPostOptions}
-      onRequestClose={() => setShowPostOptions(false)}
-    >
-      <TouchableOpacity 
-        style={styles.modalOverlay}
-        activeOpacity={1}
-        onPress={() => setShowPostOptions(false)}
-      >
-        <View style={styles.optionsModalContent}>
-          <TouchableOpacity style={styles.optionItem} onPress={handleEditCaption}>
-            <Text style={styles.optionText}>Edit Caption</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity style={styles.optionItem} onPress={handleAddCoOwners}>
-            <Text style={styles.optionText}>Add Co-owners</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity style={styles.optionItem} onPress={handleAddPhotos}>
-            <Text style={styles.optionText}>Add Photos</Text>
-          </TouchableOpacity>
-          
-          {selectedPost?.userId === auth.currentUser.uid && (
-            <TouchableOpacity 
-              style={[styles.optionItem, styles.deleteOption]} 
-              onPress={() => {
-                setShowPostOptions(false);
-                handleDeletePost(selectedPost);
-              }}
-            >
-              <Text style={styles.deleteOptionText}>Delete Post</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-      </TouchableOpacity>
-    </Modal>
-  );
 
-  const renderEditCaptionModal = () => (
-    <Modal
-      animationType="slide"
-      transparent={true}
-      visible={editingCaption}
-      onRequestClose={() => setEditingCaption(false)}
-    >
-      <View style={styles.modalContainer}>
-        <View style={styles.modalContent}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Edit Caption</Text>
-            <TouchableOpacity onPress={() => setEditingCaption(false)}>
-              <Ionicons name="close" size={24} color="black" />
-            </TouchableOpacity>
-          </View>
-
-          <TextInput
-            style={styles.captionInput}
-            value={newCaption}
-            onChangeText={setNewCaption}
-            placeholder="Write a caption..."
-            multiline
-            maxLength={2200}
-          />
-
-          <TouchableOpacity
-            style={styles.saveButton}
-            onPress={async () => {
-              if (!selectedPost) return;
-              try {
-                await updateDoc(doc(db, 'posts', selectedPost.id), {
-                  caption: newCaption
-                });
-                // Update local state
-                setPosts(prevPosts => prevPosts.map(post => 
-                  post.id === selectedPost.id 
-                    ? { ...post, caption: newCaption }
-                    : post
-                ));
-                setEditingCaption(false);
-                Alert.alert('Success', 'Caption updated successfully!');
-              } catch (error) {
-                console.error('Error updating caption:', error);
-                Alert.alert('Error', 'Failed to update caption');
-              }
-            }}
-          >
-            <Text style={styles.saveButtonText}>Save Changes</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    </Modal>
-  );
 
   const onPinchGestureEvent = useCallback(({ nativeEvent }) => {
     setScale(nativeEvent.scale);
@@ -626,8 +485,17 @@ const FeedScreen = forwardRef((props, ref) => {
               )
             }
           />
-          {renderPostOptionsModal()}
-          {renderEditCaptionModal()}
+          <PostManagement
+            selectedPost={selectedPost}
+            onClose={() => {
+              setSelectedPost(null);
+              setShowPostOptions(false);
+            }}
+            onUpdatePost={handleUpdatePost}
+            showPostOptions={showPostOptions}
+            setShowPostOptions={setShowPostOptions}
+            onDeletePost={handleDeletePost}
+          />
         </View>
       </PinchGestureHandler>
     </SafeAreaView>
@@ -827,76 +695,6 @@ const styles = StyleSheet.create({
   },
   optionsButton: {
     padding: 8
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end'
-  },
-  optionsModalContent: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 15,
-    borderTopRightRadius: 15,
-    paddingVertical: 20
-  },
-  optionItem: {
-    paddingVertical: 15,
-    paddingHorizontal: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee'
-  },
-  optionText: {
-    fontSize: 16,
-    color: '#000'
-  },
-  deleteOption: {
-    borderBottomWidth: 0
-  },
-  deleteOptionText: {
-    fontSize: 16,
-    color: '#ff3b30'
-  },
-  modalContainer: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    paddingHorizontal: 20
-  },
-  modalContent: {
-    backgroundColor: '#fff',
-    borderRadius: 15,
-    padding: 20
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 15
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: 'bold'
-  },
-  captionInput: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    padding: 12,
-    marginVertical: 15,
-    minHeight: 100,
-    textAlignVertical: 'top'
-  },
-  saveButton: {
-    backgroundColor: '#007AFF',
-    borderRadius: 8,
-    padding: 12,
-    alignItems: 'center',
-    marginTop: 10
-  },
-  saveButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600'
   },
   loadingMore: {
     paddingVertical: 16,

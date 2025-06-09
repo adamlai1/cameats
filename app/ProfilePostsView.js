@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { arrayRemove, arrayUnion, deleteDoc, doc, getDoc, increment, updateDoc } from 'firebase/firestore';
+import { arrayRemove, arrayUnion, doc, getDoc, increment, updateDoc } from 'firebase/firestore';
 import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
@@ -380,40 +380,12 @@ export default function ProfilePostsView() {
   };
 
   const handleDeletePost = async (post) => {
-    // Only allow deletion if user is the creator
-    if (post.userId !== auth.currentUser.uid) {
-      Alert.alert('Cannot Delete', 'You can only delete posts that you created.');
-      return;
-    }
-
-    Alert.alert(
-      'Delete Post',
-      'Are you sure you want to delete this post? This action cannot be undone.',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel'
-        },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              // Delete the post document
-              await deleteDoc(doc(db, 'posts', post.id));
-
-              // Update local state
-              setPosts(currentPosts => currentPosts.filter(p => p.id !== post.id));
-              Alert.alert('Success', 'Post deleted successfully');
-              router.back(); // Go back after deleting
-            } catch (error) {
-              console.error('Error deleting post:', error);
-              Alert.alert('Error', 'Failed to delete post. Please try again.');
-            }
-          }
-        }
-      ]
-    );
+    const { handleDeletePost: deletePostUtil } = await import('./utils/postOptionsUtils');
+    
+    await deletePostUtil(post, (postId) => {
+      setPosts(currentPosts => currentPosts.filter(p => p.id !== postId));
+      router.back(); // Go back after deleting
+    });
   };
 
   const fetchFriendsList = async () => {
