@@ -16,12 +16,15 @@ import {
     View
 } from 'react-native';
 import DraggableFlatList from 'react-native-draggable-flatlist';
+import { useTheme } from '../contexts/ThemeContext';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const IMAGE_SIZE = (SCREEN_WIDTH * 2) / 3; // 1.5 images fit on screen
 
 const PostScreen = forwardRef((props, ref) => {
   const router = useRouter();
+  const { theme } = useTheme();
+  const styles = getStyles(theme);
   const [selectedImages, setSelectedImages] = useState([]);
   const [hasNavigated, setHasNavigated] = useState(false);
 
@@ -234,7 +237,7 @@ const PostScreen = forwardRef((props, ref) => {
           </View>
         ) : (
           <View style={styles.emptyState}>
-            <Ionicons name="images-outline" size={80} color="#ccc" />
+            <Ionicons name="images-outline" size={80} color={theme.textSecondary} />
             <Text style={styles.emptyText}>Select photos to create your post</Text>
           </View>
         )}
@@ -243,12 +246,12 @@ const PostScreen = forwardRef((props, ref) => {
       <View style={styles.bottomActions}>
         <View style={styles.actionButtonsRow}>
           <TouchableOpacity style={styles.actionButton} onPress={takePhoto}>
-            <Ionicons name="camera" size={28} color="#007AFF" />
+            <Ionicons name="camera" size={28} color={theme.primary} />
             <Text style={styles.actionButtonText}>Camera</Text>
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.actionButton} onPress={pickImages}>
-            <Ionicons name="images" size={28} color="#007AFF" />
+            <Ionicons name="images" size={28} color={theme.primary} />
             <Text style={styles.actionButtonText}>Gallery</Text>
           </TouchableOpacity>
         </View>
@@ -267,10 +270,10 @@ const PostScreen = forwardRef((props, ref) => {
   );
 });
 
-const styles = StyleSheet.create({
+const getStyles = (theme) => StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#fff'
+    backgroundColor: theme.background
   },
   header: {
     flexDirection: 'row',
@@ -279,16 +282,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0'
+    borderBottomColor: theme.border
   },
   title: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#333'
+    color: theme.text
   },
   imageCount: {
     fontSize: 16,
-    color: '#666',
+    color: theme.textSecondary,
     fontWeight: '500'
   },
   contentContainer: {
@@ -307,7 +310,7 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 18,
-    color: '#999',
+    color: theme.textSecondary,
     textAlign: 'center',
     marginTop: 16
   },
@@ -338,7 +341,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: -2,
     right: -2,
-    backgroundColor: '#fff',
+    backgroundColor: theme.surface,
     borderRadius: 12,
     elevation: 2,
     shadowColor: '#000',
@@ -364,20 +367,20 @@ const styles = StyleSheet.create({
   actionButton: {
     alignItems: 'center',
     padding: 16,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: theme.surfaceSecondary,
     borderRadius: 12,
     minWidth: 100,
     borderWidth: 1,
-    borderColor: '#e9ecef'
+    borderColor: theme.border
   },
   actionButtonText: {
-    color: '#007AFF',
+    color: theme.primary,
     fontSize: 14,
     fontWeight: '600',
     marginTop: 4
   },
   nextButton: {
-    backgroundColor: '#007AFF',
+    backgroundColor: theme.primary,
     paddingVertical: 16,
     paddingHorizontal: 24,
     borderRadius: 12,
@@ -398,11 +401,11 @@ const styles = StyleSheet.create({
   },
   clearButton: {
     padding: 8,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: theme.surfaceSecondary,
     borderRadius: 8
   },
   clearButtonText: {
-    color: '#007AFF',
+    color: theme.primary,
     fontSize: 14,
     fontWeight: '600'
   }

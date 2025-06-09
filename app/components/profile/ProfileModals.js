@@ -10,6 +10,7 @@ import {
     TouchableOpacity,
     View
 } from 'react-native';
+import { useTheme } from '../../contexts/ThemeContext';
 
 export const AddFriendModal = ({
   visible,
@@ -19,119 +20,130 @@ export const AddFriendModal = ({
   searching,
   searchResults,
   onSendRequest
-}) => (
-  <Modal
-    animationType="slide"
-    transparent={true}
-    visible={visible}
-    onRequestClose={onClose}
-  >
-    <View style={styles.modalContainer}>
-      <View style={styles.modalContent}>
-        <View style={styles.modalHeader}>
-          <Text style={styles.modalTitle}>Add Friend</Text>
-          <TouchableOpacity onPress={onClose}>
-            <Ionicons name="close" size={24} color="black" />
-          </TouchableOpacity>
-        </View>
+}) => {
+  const { theme } = useTheme();
+  const styles = getStyles(theme);
+  
+  return (
+    <Modal
+      animationType="slide"
+      transparent={true}
+      visible={visible}
+      onRequestClose={onClose}
+    >
+      <View style={styles.modalContainer}>
+        <View style={styles.modalContent}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Add Friend</Text>
+            <TouchableOpacity onPress={onClose}>
+              <Ionicons name="close" size={24} color={theme.text} />
+            </TouchableOpacity>
+          </View>
 
-        <View style={styles.searchContainer}>
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search by username"
-            value={searchUsername}
-            onChangeText={onSearchChange}
-            autoCapitalize="none"
-          />
-          {searching && (
-            <ActivityIndicator style={styles.searchSpinner} />
-          )}
-        </View>
+          <View style={styles.searchContainer}>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search by username"
+              placeholderTextColor={theme.textSecondary}
+              value={searchUsername}
+              onChangeText={onSearchChange}
+              autoCapitalize="none"
+            />
+            {searching && (
+              <ActivityIndicator style={styles.searchSpinner} />
+            )}
+          </View>
 
-        <FlatList
-          data={searchResults}
-          keyExtractor={item => `search-${item.id}`}
-          renderItem={({ item }) => (
-            <View style={styles.searchResultItem}>
-              <Text style={styles.searchResultUsername}>{item.username}</Text>
-              {item.isFriend ? (
-                <View style={[styles.addButton, styles.addedButton]}>
-                  <Text style={styles.addedButtonText}>Added</Text>
-                </View>
-              ) : item.hasPendingRequest ? (
-                <View style={[styles.addButton, styles.pendingButton]}>
-                  <Text style={styles.pendingButtonText}>Pending</Text>
-                </View>
+          <FlatList
+            data={searchResults}
+            keyExtractor={item => `search-${item.id}`}
+            renderItem={({ item }) => (
+              <View style={styles.searchResultItem}>
+                <Text style={styles.searchResultUsername}>{item.username}</Text>
+                {item.isFriend ? (
+                  <View style={[styles.addButton, styles.addedButton]}>
+                    <Text style={styles.addedButtonText}>Added</Text>
+                  </View>
+                ) : item.hasPendingRequest ? (
+                  <View style={[styles.addButton, styles.pendingButton]}>
+                    <Text style={styles.pendingButtonText}>Pending</Text>
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    style={styles.addButton}
+                    onPress={() => onSendRequest(item)}
+                  >
+                    <Text style={styles.addButtonText}>Add</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
+            ListEmptyComponent={
+              searchUsername ? (
+                <Text style={styles.emptyText}>No users found</Text>
               ) : (
-                <TouchableOpacity
-                  style={styles.addButton}
-                  onPress={() => onSendRequest(item)}
-                >
-                  <Text style={styles.addButtonText}>Add</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          )}
-          ListEmptyComponent={
-            searchUsername ? (
-              <Text style={styles.emptyText}>No users found</Text>
-            ) : (
-              <Text style={styles.emptyText}>Search for users to add</Text>
-            )
-          }
-        />
+                <Text style={styles.emptyText}>Search for users to add</Text>
+              )
+            }
+          />
+        </View>
       </View>
-    </View>
-  </Modal>
-);
+    </Modal>
+  );
+};
 
 export const FriendRequestsModal = ({
   visible,
   onClose,
   friendRequests,
   onAcceptRequest
-}) => (
-  <Modal
-    animationType="slide"
-    transparent={true}
-    visible={visible}
-    onRequestClose={onClose}
-  >
-    <View style={styles.modalContainer}>
-      <View style={styles.modalContent}>
-        <View style={styles.modalHeader}>
-          <Text style={styles.modalTitle}>Friend Requests</Text>
-          <TouchableOpacity onPress={onClose}>
-            <Ionicons name="close" size={24} color="black" />
-          </TouchableOpacity>
-        </View>
+}) => {
+  const { theme } = useTheme();
+  const styles = getStyles(theme);
+  
+  return (
+    <Modal
+      animationType="slide"
+      transparent={true}
+      visible={visible}
+      onRequestClose={onClose}
+    >
+      <View style={styles.modalContainer}>
+        <View style={styles.modalContent}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Friend Requests</Text>
+            <TouchableOpacity onPress={onClose}>
+              <Ionicons name="close" size={24} color={theme.text} />
+            </TouchableOpacity>
+          </View>
 
-        <FlatList
-          data={friendRequests}
-          keyExtractor={item => `request-${item.id}`}
-          renderItem={({ item }) => (
-            <View style={styles.requestItem}>
-              <View style={styles.requestInfo}>
-                <Text style={styles.requestUsername}>{item.username}</Text>
+          <FlatList
+            data={friendRequests}
+            keyExtractor={item => `request-${item.id}`}
+            renderItem={({ item }) => (
+              <View style={styles.requestItem}>
+                <View style={styles.requestInfo}>
+                  <Text style={styles.requestUsername}>{item.username}</Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.acceptButton}
+                  onPress={() => onAcceptRequest(item.id)}
+                >
+                  <Text style={styles.acceptButtonText}>Accept</Text>
+                </TouchableOpacity>
               </View>
-              <TouchableOpacity
-                style={styles.acceptButton}
-                onPress={() => onAcceptRequest(item.id)}
-              >
-                <Text style={styles.acceptButtonText}>Accept</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-          ListEmptyComponent={
-            <Text style={styles.emptyText}>No friend requests</Text>
-          }
-        />
+            )}
+            ListEmptyComponent={
+              <Text style={styles.emptyText}>No friend requests</Text>
+            }
+          />
+        </View>
       </View>
-    </View>
-  </Modal>
-);
+    </Modal>
+  );
+};
 
-const styles = StyleSheet.create({
+const getStyles = (theme) => StyleSheet.create({
   modalContainer: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
@@ -139,7 +151,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20
   },
   modalContent: {
-    backgroundColor: '#fff',
+    backgroundColor: theme.background,
     borderRadius: 15,
     padding: 20,
     maxHeight: '80%'
@@ -152,7 +164,8 @@ const styles = StyleSheet.create({
   },
   modalTitle: {
     fontSize: 18,
-    fontWeight: 'bold'
+    fontWeight: 'bold',
+    color: theme.text
   },
   searchContainer: {
     marginBottom: 15,
@@ -163,10 +176,12 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 40,
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: theme.border,
     borderRadius: 8,
     paddingHorizontal: 12,
-    fontSize: 16
+    fontSize: 16,
+    color: theme.text,
+    backgroundColor: theme.surface
   },
   searchSpinner: {
     marginLeft: 10
@@ -177,10 +192,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee'
+    borderBottomColor: theme.border
   },
   searchResultUsername: {
-    fontSize: 16
+    fontSize: 16,
+    color: theme.text
   },
   addButton: {
     paddingHorizontal: 16,
@@ -193,10 +209,10 @@ const styles = StyleSheet.create({
     fontWeight: '600'
   },
   addedButton: {
-    backgroundColor: '#eee'
+    backgroundColor: theme.surface
   },
   addedButtonText: {
-    color: '#666',
+    color: theme.textSecondary,
     fontWeight: '600'
   },
   pendingButton: {
@@ -212,13 +228,14 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee'
+    borderBottomColor: theme.border
   },
   requestInfo: {
     flex: 1
   },
   requestUsername: {
-    fontSize: 16
+    fontSize: 16,
+    color: theme.text
   },
   acceptButton: {
     paddingHorizontal: 16,
@@ -232,7 +249,7 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     textAlign: 'center',
-    color: '#666',
+    color: theme.textSecondary,
     fontSize: 16,
     marginTop: 20
   }

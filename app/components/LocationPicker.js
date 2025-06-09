@@ -12,12 +12,15 @@ import {
     View
 } from 'react-native';
 import { config } from '../config/config';
+import { useTheme } from '../contexts/ThemeContext';
 
 // Google Places API configuration
 const GOOGLE_PLACES_API_KEY = config.GOOGLE_PLACES_API_KEY;
 const PLACES_API_URL = 'https://maps.googleapis.com/maps/api/place';
 
 const LocationPicker = ({ onLocationSelect, initialLocation = null }) => {
+  const { theme } = useTheme();
+  const styles = getStyles(theme);
   const [searchQuery, setSearchQuery] = useState('');
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -401,7 +404,7 @@ const LocationPicker = ({ onLocationSelect, initialLocation = null }) => {
     <View style={styles.container}>
       <View style={styles.searchContainer}>
         <View style={styles.searchInputContainer}>
-          <Ionicons name="search" size={20} color="#666" style={styles.searchIcon} />
+          <Ionicons name="search" size={20} color={theme.textSecondary} style={styles.searchIcon} />
           <TextInput
             style={styles.searchInput}
             placeholder="Search for restaurants or enter custom location"
@@ -424,7 +427,7 @@ const LocationPicker = ({ onLocationSelect, initialLocation = null }) => {
               }}
               style={styles.clearButton}
             >
-              <Ionicons name="close-circle" size={20} color="#666" />
+              <Ionicons name="close-circle" size={20} color={theme.textSecondary} />
             </TouchableOpacity>
           )}
         </View>
@@ -467,7 +470,7 @@ const LocationPicker = ({ onLocationSelect, initialLocation = null }) => {
         ListEmptyComponent={
           !loading && searchQuery.length === 0 && currentLocation && (
             <View style={styles.emptyContainer}>
-              <Ionicons name="location-outline" size={40} color="#ccc" />
+              <Ionicons name="location-outline" size={40} color={theme.textSecondary} />
               <Text style={styles.emptyText}>Start typing to search for restaurants</Text>
               <Text style={styles.emptySubtext}>or use your current location to find nearby places</Text>
             </View>
@@ -488,21 +491,21 @@ const LocationPicker = ({ onLocationSelect, initialLocation = null }) => {
   );
 };
 
-const styles = StyleSheet.create({
+const getStyles = (theme) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: theme.background,
   },
   searchContainer: {
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    borderBottomColor: theme.border,
   },
   searchInputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f5f5f5',
+    backgroundColor: theme.surface,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 8,
@@ -513,7 +516,7 @@ const styles = StyleSheet.create({
   searchInput: {
     flex: 1,
     fontSize: 16,
-    color: '#333',
+    color: theme.text,
   },
   clearButton: {
     padding: 4,
@@ -542,7 +545,7 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     marginLeft: 8,
-    color: '#666',
+    color: theme.textSecondary,
     fontSize: 14,
   },
   customLocationButton: {
@@ -550,9 +553,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: '#f0f8ff',
+    backgroundColor: theme.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    borderBottomColor: theme.border,
   },
   customLocationText: {
     marginLeft: 8,
@@ -569,10 +572,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    borderBottomColor: theme.border,
   },
   selectedLocationItem: {
-    backgroundColor: '#f0f8ff',
+    backgroundColor: theme.surface,
   },
   locationInfo: {
     flex: 1,
@@ -584,7 +587,7 @@ const styles = StyleSheet.create({
   locationName: {
     fontSize: 16,
     fontWeight: '500',
-    color: '#333',
+    color: theme.text,
     marginBottom: 2,
   },
   categoryBadge: {
@@ -599,7 +602,7 @@ const styles = StyleSheet.create({
   },
   locationAddress: {
     fontSize: 14,
-    color: '#666',
+    color: theme.textSecondary,
     marginBottom: 4,
   },
   ratingContainer: {
@@ -608,12 +611,12 @@ const styles = StyleSheet.create({
   },
   rating: {
     fontSize: 12,
-    color: '#666',
+    color: theme.textSecondary,
     marginLeft: 2,
   },
   distance: {
     fontSize: 12,
-    color: '#666',
+    color: theme.textSecondary,
   },
   emptyContainer: {
     alignItems: 'center',
@@ -622,26 +625,26 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 16,
-    color: '#666',
+    color: theme.textSecondary,
     textAlign: 'center',
     marginTop: 12,
   },
   emptySubtext: {
     fontSize: 14,
-    color: '#999',
+    color: theme.textSecondary,
     textAlign: 'center',
     marginTop: 4,
   },
   selectedLocationContainer: {
-    backgroundColor: '#f8f9fa',
+    backgroundColor: theme.surface,
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderTopWidth: 1,
-    borderTopColor: '#eee',
+    borderTopColor: theme.border,
   },
   selectedLocationLabel: {
     fontSize: 12,
-    color: '#666',
+    color: theme.textSecondary,
     fontWeight: '500',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
@@ -649,12 +652,12 @@ const styles = StyleSheet.create({
   selectedLocationName: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#333',
+    color: theme.text,
     marginTop: 2,
   },
   selectedLocationAddress: {
     fontSize: 14,
-    color: '#666',
+    color: theme.textSecondary,
     marginTop: 1,
   },
 });

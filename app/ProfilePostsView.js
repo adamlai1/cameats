@@ -22,6 +22,7 @@ import {
 import { State, TapGestureHandler } from 'react-native-gesture-handler';
 import * as Progress from 'react-native-progress';
 import { auth, db, storage } from '../firebase';
+import { useTheme } from './contexts/ThemeContext';
 import { handleDeletePost as deletePostUtil } from './utils/postOptionsUtils';
 
 // Import bread slice images and preload them
@@ -30,22 +31,24 @@ const breadBitten = require('../assets/images/bread-bitten.png');
 
 const WINDOW_WIDTH = Dimensions.get('window').width;
 
-// Memoized BreadButton component to prevent unnecessary re-renders
-const BreadButton = React.memo(({ postId, hasUserBited, onPress }) => (
-  <TouchableOpacity 
-    style={styles.biteButton}
-    onPress={() => onPress(postId)}
-    activeOpacity={0.7}
-  >
-    <Image 
-      source={hasUserBited ? breadBitten : breadNormal}
-      style={styles.breadEmoji}
-      fadeDuration={0}
-    />
-  </TouchableOpacity>
-));
-
 export default function ProfilePostsView() {
+  const { theme } = useTheme();
+  const styles = getStyles(theme);
+  
+  // Memoized BreadButton component to prevent unnecessary re-renders
+  const BreadButton = React.memo(({ postId, hasUserBited, onPress }) => (
+    <TouchableOpacity 
+      style={styles.biteButton}
+      onPress={() => onPress(postId)}
+      activeOpacity={0.7}
+    >
+      <Image 
+        source={hasUserBited ? breadBitten : breadNormal}
+        style={styles.breadEmoji}
+        fadeDuration={0}
+      />
+    </TouchableOpacity>
+  ));
   const router = useRouter();
   const { postIds: postIdsParam, initialIndex, username } = useLocalSearchParams();
   const [posts, setPosts] = useState([]);
@@ -769,7 +772,7 @@ export default function ProfilePostsView() {
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Edit Caption</Text>
             <TouchableOpacity onPress={() => setEditingCaption(false)}>
-              <Ionicons name="close" size={24} color="black" />
+              <Ionicons name="close" size={24} color={theme.text} />
             </TouchableOpacity>
           </View>
 
@@ -778,6 +781,7 @@ export default function ProfilePostsView() {
             value={newCaption}
             onChangeText={setNewCaption}
             placeholder="Write a caption..."
+            placeholderTextColor={theme.textSecondary}
             multiline
             maxLength={2200}
           />
@@ -823,7 +827,7 @@ export default function ProfilePostsView() {
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Add Co-owners</Text>
             <TouchableOpacity onPress={() => setShowAddCoOwners(false)}>
-              <Ionicons name="close" size={24} color="black" />
+              <Ionicons name="close" size={24} color={theme.text} />
             </TouchableOpacity>
           </View>
 
@@ -831,6 +835,7 @@ export default function ProfilePostsView() {
             <TextInput
               style={styles.searchInput}
               placeholder="Search friends"
+              placeholderTextColor={theme.textSecondary}
               value={searchUsername}
               onChangeText={handleSearch}
               autoCapitalize="none"
@@ -852,7 +857,7 @@ export default function ProfilePostsView() {
                       onPress={() => toggleFriendSelection(friend)}
                       style={styles.removeSelectedButton}
                     >
-                      <Ionicons name="close-circle" size={20} color="#666" />
+                      <Ionicons name="close-circle" size={20} color={theme.textSecondary} />
                     </TouchableOpacity>
                   </View>
                 ))}
@@ -911,7 +916,7 @@ export default function ProfilePostsView() {
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Add More Photos</Text>
             <TouchableOpacity onPress={() => setShowAddPhotos(false)}>
-              <Ionicons name="close" size={24} color="black" />
+              <Ionicons name="close" size={24} color={theme.text} />
             </TouchableOpacity>
           </View>
 
@@ -996,7 +1001,7 @@ export default function ProfilePostsView() {
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Manage Photos</Text>
             <TouchableOpacity onPress={() => setShowManagePhotos(false)}>
-              <Ionicons name="close" size={24} color="black" />
+              <Ionicons name="close" size={24} color={theme.text} />
             </TouchableOpacity>
           </View>
 
@@ -1044,7 +1049,7 @@ export default function ProfilePostsView() {
           style={styles.backButton}
           onPress={() => router.back()}
         >
-          <Ionicons name="arrow-back" size={24} color="black" />
+          <Ionicons name="arrow-back" size={24} color={theme.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{username}'s Posts</Text>
         <View style={styles.placeholder} />
@@ -1076,10 +1081,10 @@ export default function ProfilePostsView() {
   );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (theme) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff'
+    backgroundColor: theme.background
   },
   loadingContainer: {
     flex: 1,
@@ -1093,8 +1098,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 15,
     paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-    backgroundColor: '#fff'
+    borderBottomColor: theme.border,
+    backgroundColor: theme.background
   },
   backButton: {
     flexDirection: 'row',
@@ -1104,14 +1109,14 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#000'
+    color: theme.text
   },
   placeholder: {
     width: 40
   },
   postContainer: {
     marginBottom: 15,
-    backgroundColor: '#fff',
+    backgroundColor: theme.background,
     width: '100%'
   },
   postHeader: {
@@ -1120,7 +1125,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     padding: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee'
+    borderBottomColor: theme.border
   },
   headerContent: {
     flexDirection: 'column',
@@ -1255,7 +1260,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.5)'
   },
   modalContent: {
-    backgroundColor: 'white',
+    backgroundColor: theme.background,
     borderRadius: 15,
     padding: 20,
     width: '90%',
@@ -1276,20 +1281,23 @@ const styles = StyleSheet.create({
     marginBottom: 15,
     paddingBottom: 15,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee'
+    borderBottomColor: theme.border
   },
   modalTitle: {
     fontSize: 18,
-    fontWeight: '600'
+    fontWeight: '600',
+    color: theme.text
   },
   captionInput: {
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: theme.border,
     borderRadius: 8,
     padding: 12,
     marginVertical: 15,
     minHeight: 100,
-    textAlignVertical: 'top'
+    textAlignVertical: 'top',
+    color: theme.text,
+    backgroundColor: theme.surface
   },
   saveButton: {
     backgroundColor: '#007AFF',
@@ -1308,23 +1316,25 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: theme.border,
     borderRadius: 8,
     padding: 10,
-    fontSize: 16
+    fontSize: 16,
+    color: theme.text,
+    backgroundColor: theme.surface
   },
   selectedFriendsContainer: {
     maxHeight: 80,
     marginBottom: 15,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    borderBottomColor: theme.border,
     paddingBottom: 15
   },
   selectedFriendsTitle: {
     fontSize: 14,
     fontWeight: '600',
     marginBottom: 10,
-    color: '#666'
+    color: theme.textSecondary
   },
   selectedFriendsScroll: {
     flexDirection: 'row'
@@ -1332,7 +1342,7 @@ const styles = StyleSheet.create({
   selectedFriendChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f0f0f0',
+    backgroundColor: theme.surface,
     borderRadius: 20,
     paddingVertical: 6,
     paddingHorizontal: 12,
@@ -1340,7 +1350,8 @@ const styles = StyleSheet.create({
   },
   selectedFriendUsername: {
     fontSize: 14,
-    marginRight: 4
+    marginRight: 4,
+    color: theme.text
   },
   removeSelectedButton: {
     marginLeft: 4
@@ -1351,18 +1362,18 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     padding: 15,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee'
+    borderBottomColor: theme.border
   },
   searchResultUsername: {
     fontSize: 16,
-    color: '#000'
+    color: theme.text
   },
   checkBox: {
     width: 24,
     height: 24,
     borderRadius: 12,
     borderWidth: 2,
-    borderColor: '#ddd',
+    borderColor: theme.border,
     justifyContent: 'center',
     alignItems: 'center'
   },
@@ -1372,7 +1383,7 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     textAlign: 'center',
-    color: '#666',
+    color: theme.textSecondary,
     padding: 20
   },
   selectedImagesContainer: {
@@ -1392,14 +1403,14 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: -8,
     right: -8,
-    backgroundColor: '#fff',
+    backgroundColor: theme.background,
     borderRadius: 12
   },
   emptyImagesContainer: {
     height: 120,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#f8f8f8',
+    backgroundColor: theme.surface,
     borderRadius: 8,
     marginBottom: 20
   },
@@ -1436,7 +1447,7 @@ const styles = StyleSheet.create({
   progressText: {
     marginTop: 8,
     fontSize: 14,
-    color: '#666'
+    color: theme.textSecondary
   },
   managePhotosContainer: {
     maxHeight: '80%'
@@ -1445,7 +1456,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 15,
-    backgroundColor: '#f8f8f8',
+    backgroundColor: theme.surface,
     borderRadius: 8,
     padding: 10
   },
@@ -1469,7 +1480,7 @@ const styles = StyleSheet.create({
   },
   locationText: {
     fontSize: 12,
-    color: '#666',
+    color: theme.textSecondary,
     marginLeft: 4
   }
 }); 

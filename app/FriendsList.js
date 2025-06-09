@@ -14,8 +14,11 @@ import {
     View
 } from 'react-native';
 import { db } from '../firebase';
+import { useTheme } from './contexts/ThemeContext';
 
 export default function FriendsList() {
+  const { theme } = useTheme();
+  const styles = getStyles(theme);
   const router = useRouter();
   const { userId } = useLocalSearchParams();
   const [friends, setFriends] = useState([]);
@@ -76,7 +79,7 @@ export default function FriendsList() {
             style={styles.backButton}
             onPress={() => router.back()}
           >
-            <Ionicons name="arrow-back" size={24} color="black" />
+            <Ionicons name="arrow-back" size={24} color={theme.text} />
           </TouchableOpacity>
           <Text style={styles.title}>Friends</Text>
           <View style={styles.headerRight} />
@@ -87,7 +90,7 @@ export default function FriendsList() {
         <TextInput
           style={styles.searchInput}
           placeholder="Search friends..."
-          placeholderTextColor="#666"
+          placeholderTextColor={theme.textSecondary}
           value={searchQuery}
           onChangeText={setSearchQuery}
         />
@@ -113,14 +116,14 @@ export default function FriendsList() {
               />
             ) : (
               <View style={[styles.friendAvatar, styles.defaultAvatar]}>
-                <Ionicons name="person" size={30} color="#666" />
+                <Ionicons name="person" size={30} color={theme.textSecondary} />
               </View>
             )}
             <View style={styles.friendInfo}>
               <Text style={styles.friendName}>{item.displayName || item.username}</Text>
               <Text style={styles.friendUsername}>@{item.username}</Text>
             </View>
-            <Ionicons name="chevron-forward" size={20} color="#666" />
+            <Ionicons name="chevron-forward" size={20} color={theme.textSecondary} />
           </TouchableOpacity>
         )}
         contentContainerStyle={styles.friendsList}
@@ -129,10 +132,10 @@ export default function FriendsList() {
   );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (theme) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff'
+    backgroundColor: theme.background
   },
   loadingContainer: {
     flex: 1,
@@ -141,7 +144,7 @@ const styles = StyleSheet.create({
   },
   header: {
     borderBottomWidth: 1,
-    borderBottomColor: '#eee'
+    borderBottomColor: theme.border
   },
   headerTop: {
     flexDirection: 'row',
@@ -157,16 +160,18 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 18,
-    fontWeight: 'bold'
+    fontWeight: 'bold',
+    color: theme.text
   },
   searchContainer: {
     padding: 15
   },
   searchInput: {
-    backgroundColor: '#f0f0f0',
+    backgroundColor: theme.surface,
     padding: 12,
     borderRadius: 10,
-    fontSize: 16
+    fontSize: 16,
+    color: theme.text
   },
   friendsList: {
     paddingHorizontal: 15
@@ -176,7 +181,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee'
+    borderBottomColor: theme.border
   },
   friendAvatar: {
     width: 50,
@@ -185,7 +190,7 @@ const styles = StyleSheet.create({
     marginRight: 15
   },
   defaultAvatar: {
-    backgroundColor: '#f0f0f0',
+    backgroundColor: theme.surface,
     justifyContent: 'center',
     alignItems: 'center'
   },
@@ -194,10 +199,11 @@ const styles = StyleSheet.create({
   },
   friendName: {
     fontSize: 16,
-    fontWeight: '500'
+    fontWeight: '500',
+    color: theme.text
   },
   friendUsername: {
     fontSize: 14,
-    color: '#666'
+    color: theme.textSecondary
   }
 }); 

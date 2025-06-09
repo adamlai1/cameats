@@ -5,6 +5,7 @@ import { useEffect } from 'react';
 import { Image, LogBox } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AuthProvider } from '../app/contexts/AuthContext';
+import { ThemeProvider } from '../app/contexts/ThemeContext';
 
 // Import bread images
 const breadNormal = require('../assets/images/bread-normal.png');
@@ -77,7 +78,9 @@ function RootLayoutNav() {
 export default function RootLayout() {
   return (
     <AuthProvider>
-      <RootLayoutNav />
+      <ThemeProvider>
+        <RootLayoutNav />
+      </ThemeProvider>
     </AuthProvider>
   );
 }

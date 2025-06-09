@@ -16,10 +16,13 @@ import {
     View
 } from 'react-native';
 import { db } from '../firebase';
+import { useTheme } from './contexts/ThemeContext';
 
 export default function FriendProfile() {
   const router = useRouter();
   const { userId } = useLocalSearchParams();
+  const { theme } = useTheme();
+  const styles = getStyles(theme);
   const [profile, setProfile] = useState(null);
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -141,7 +144,7 @@ export default function FriendProfile() {
     <View style={styles.header}>
       <View style={styles.headerTop}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color="#000" />
+          <Ionicons name="arrow-back" size={24} color={theme.text} />
         </TouchableOpacity>
         <Text style={styles.username}>@{profile?.username}</Text>
         <View style={styles.headerRight} />
@@ -157,7 +160,7 @@ export default function FriendProfile() {
               />
             ) : (
               <View style={[styles.profilePic, styles.defaultProfilePic]}>
-                <Ionicons name="person" size={40} color="#666" />
+                <Ionicons name="person" size={40} color={theme.textSecondary} />
               </View>
             )}
           </View>
@@ -192,7 +195,7 @@ export default function FriendProfile() {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#1976d2" />
+          <ActivityIndicator size="large" color={theme.primary} />
         </View>
       </SafeAreaView>
     );
@@ -210,7 +213,7 @@ export default function FriendProfile() {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor="#1976d2"
+            tintColor={theme.primary}
           />
         }
       />
@@ -218,10 +221,10 @@ export default function FriendProfile() {
   );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (theme) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff'
+    backgroundColor: theme.background
   },
   loadingContainer: {
     flex: 1,
@@ -245,7 +248,8 @@ const styles = StyleSheet.create({
   },
   username: {
     fontSize: 20,
-    fontWeight: 'bold'
+    fontWeight: 'bold',
+    color: theme.text
   },
   profileInfo: {
     flexDirection: 'row',
@@ -259,7 +263,7 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: '#f0f0f0',
+    backgroundColor: theme.surfaceSecondary,
     justifyContent: 'center',
     alignItems: 'center',
     overflow: 'hidden'
@@ -270,7 +274,7 @@ const styles = StyleSheet.create({
     resizeMode: 'cover'
   },
   defaultProfilePic: {
-    backgroundColor: '#f0f0f0',
+    backgroundColor: theme.surfaceSecondary,
     justifyContent: 'center',
     alignItems: 'center'
   },
@@ -284,10 +288,11 @@ const styles = StyleSheet.create({
   },
   statNumber: {
     fontSize: 18,
-    fontWeight: 'bold'
+    fontWeight: 'bold',
+    color: theme.text
   },
   statLabel: {
-    color: '#666'
+    color: theme.textSecondary
   },
   bioContainer: {
     paddingHorizontal: 15,
@@ -296,16 +301,17 @@ const styles = StyleSheet.create({
   displayName: {
     fontWeight: 'bold',
     fontSize: 16,
-    marginBottom: 4
+    marginBottom: 4,
+    color: theme.text
   },
   bio: {
     fontSize: 14,
-    color: '#262626',
+    color: theme.text,
     lineHeight: 20
   },
   noBio: {
     fontSize: 14,
-    color: '#666',
+    color: theme.textSecondary,
     fontStyle: 'italic'
   },
   gridImage: {
@@ -358,6 +364,6 @@ const styles = StyleSheet.create({
   biteCountText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#000',
+    color: theme.text,
   }
 }); 

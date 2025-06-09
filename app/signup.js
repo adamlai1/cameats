@@ -6,8 +6,11 @@ import { doc, setDoc } from 'firebase/firestore';
 import { useState } from 'react';
 import { Alert, Button, StyleSheet, Text, TextInput, View } from 'react-native';
 import { auth, db } from '../firebase';
+import { useTheme } from './contexts/ThemeContext';
 
 export default function SignupScreen() {
+  const { theme } = useTheme();
+  const styles = getStyles(theme);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
@@ -66,7 +69,7 @@ export default function SignupScreen() {
           onChangeText={setDisplayName} 
           style={styles.input}
           autoCapitalize="words"
-          placeholderTextColor="#999"
+          placeholderTextColor={theme.textSecondary}
         />
       </View>
 
@@ -78,7 +81,7 @@ export default function SignupScreen() {
           onChangeText={setUsername} 
           style={styles.input}
           autoCapitalize="none"
-          placeholderTextColor="#999"
+          placeholderTextColor={theme.textSecondary}
         />
       </View>
 
@@ -91,7 +94,7 @@ export default function SignupScreen() {
           keyboardType="email-address" 
           style={styles.input}
           autoCapitalize="none"
-          placeholderTextColor="#999"
+          placeholderTextColor={theme.textSecondary}
         />
       </View>
 
@@ -103,7 +106,7 @@ export default function SignupScreen() {
           onChangeText={setPassword} 
           secureTextEntry 
           style={styles.input}
-          placeholderTextColor="#999"
+          placeholderTextColor={theme.textSecondary}
         />
       </View>
 
@@ -115,19 +118,19 @@ export default function SignupScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (theme) => StyleSheet.create({
   container: { 
     flex: 1, 
     justifyContent: 'center', 
     alignItems: 'center', 
     padding: 20,
-    backgroundColor: '#fff'
+    backgroundColor: theme.background
   },
   title: { 
     fontSize: 24, 
     fontWeight: 'bold',
     marginBottom: 30,
-    color: '#000'
+    color: theme.text
   },
   inputContainer: {
     width: '80%',
@@ -136,18 +139,18 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 16,
     marginBottom: 8,
-    color: '#000',
+    color: theme.text,
     fontWeight: '500'
   },
   input: { 
     borderWidth: 1, 
-    borderColor: '#ddd',
+    borderColor: theme.border,
     borderRadius: 8,
     padding: 12,
     width: '100%',
     fontSize: 16,
-    backgroundColor: '#f8f8f8',
-    color: '#000'
+    backgroundColor: theme.surface,
+    color: theme.text
   },
   buttonContainer: {
     marginTop: 20,

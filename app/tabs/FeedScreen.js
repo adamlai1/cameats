@@ -20,6 +20,7 @@ import { PinchGestureHandler, State, TapGestureHandler } from 'react-native-gest
 import { auth } from '../../firebase';
 import PostManagement from '../components/PostManagement';
 import { PostSkeleton } from '../components/ui/SkeletonLoader';
+import { useTheme } from '../contexts/ThemeContext';
 import * as postService from '../services/postService';
 import { handleDeletePost as deletePostUtil } from '../utils/postOptionsUtils';
 
@@ -35,22 +36,252 @@ const biteAnimation = require('../../assets/images/bite-animation.png');
 Image.prefetch(Image.resolveAssetSource(breadNormal).uri);
 Image.prefetch(Image.resolveAssetSource(breadBitten).uri);
 
+// Define styles function before component
+const getStyles = (theme) => StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: theme.background
+  },
+  contentContainer: {
+    paddingBottom: 20
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.border,
+    backgroundColor: theme.surface,
+    marginBottom: 5
+  },
+  headerTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: theme.text
+  },
+  viewModeButton: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: theme.surfaceSecondary
+  },
+  postContainer: {
+    marginBottom: 15,
+    backgroundColor: theme.surface,
+    width: '100%'
+  },
+  postHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.border
+  },
+  headerContent: {
+    flexDirection: 'column',
+    flex: 1
+  },
+  usernameScrollContainer: {
+    marginBottom: 4
+  },
+  usernameContainer: {
+    flexDirection: 'row',
+    alignItems: 'center'
+  },
+  usernameWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center'
+  },
+  username: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: theme.accent
+  },
+  usernameSeparator: {
+    fontSize: 14,
+    color: theme.textSecondary
+  },
+  imageGalleryContainer: {
+    width: '100%',
+    aspectRatio: 1,
+    position: 'relative',
+    backgroundColor: theme.surfaceSecondary
+  },
+  actionBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  leftActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  biteButton: {
+    padding: 4,
+  },
+  breadEmoji: {
+    width: 38,
+    height: 38,
+  },
+  biteCountContainer: {
+    paddingHorizontal: 12,
+    paddingBottom: 4,
+  },
+  biteCountText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: theme.text,
+  },
+  paginationDots: {
+    position: 'absolute',
+    bottom: 10,
+    flexDirection: 'row',
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  paginationDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255, 255, 255, 0.5)',
+    marginHorizontal: 3,
+  },
+  paginationDotActive: {
+    backgroundColor: '#fff',
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  postImage: {
+    width: Dimensions.get('window').width,
+    aspectRatio: 1,
+    backgroundColor: theme.surfaceSecondary
+  },
+  postFooter: {
+    padding: 12
+  },
+  caption: {
+    fontSize: 14,
+    marginBottom: 5,
+    color: theme.text
+  },
+  postDate: {
+    fontSize: 12,
+    color: theme.textSecondary,
+    marginTop: 8
+  },
+  gridItem: {
+    width: Dimensions.get('window').width / 3 - 2,
+    aspectRatio: 1,
+    margin: 1,
+    position: 'relative'
+  },
+  gridImage: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: theme.surfaceSecondary
+  },
+  gridBiteCounter: {
+    position: 'absolute',
+    bottom: 5,
+    left: 5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  gridBreadEmoji: {
+    width: 19,
+    height: 19,
+    marginRight: 2,
+  },
+  gridBiteCount: {
+    fontSize: 10,
+    color: '#fff',
+    fontWeight: '600',
+  },
+  coOwnedBadge: {
+    position: 'absolute',
+    top: 5,
+    right: 5,
+    backgroundColor: 'rgba(25, 118, 210, 0.8)',
+    borderRadius: 12,
+    width: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  multipleImagesBadge: {
+    position: 'absolute',
+    top: 5,
+    right: 34,
+    backgroundColor: 'rgba(25, 118, 210, 0.8)',
+    borderRadius: 12,
+    width: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  optionsButton: {
+    padding: 8
+  },
+  loadingMore: {
+    paddingVertical: 16,
+    alignItems: 'center'
+  },
+  emptyContainer: {
+    padding: 20,
+    alignItems: 'center'
+  },
+  emptyText: {
+    fontSize: 16,
+    color: theme.textSecondary
+  },
+  locationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 2
+  },
+  locationText: {
+    fontSize: 12,
+    color: theme.textSecondary,
+    marginLeft: 4
+  }
+});
+
 // Memoized BreadButton component to prevent unnecessary re-renders
-const BreadButton = React.memo(({ postId, hasUserBited, onPress }) => (
-  <TouchableOpacity 
-    style={styles.biteButton}
-    onPress={() => onPress(postId)}
-    activeOpacity={0.7}
-  >
-    <Image 
-      source={hasUserBited ? breadBitten : breadNormal}
-      style={styles.breadEmoji}
-      fadeDuration={0} // Disable fade animation for faster updates
-    />
-  </TouchableOpacity>
-));
+const BreadButton = React.memo(({ postId, hasUserBited, onPress, theme }) => {
+  const styles = getStyles(theme);
+  return (
+    <TouchableOpacity 
+      style={styles.biteButton}
+      onPress={() => onPress(postId)}
+      activeOpacity={0.7}
+    >
+      <Image 
+        source={hasUserBited ? breadBitten : breadNormal}
+        style={styles.breadEmoji}
+        fadeDuration={0} // Disable fade animation for faster updates
+      />
+    </TouchableOpacity>
+  );
+});
 
 const FeedScreen = forwardRef((props, ref) => {
+  const { theme } = useTheme();
+  const styles = getStyles(theme);
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -324,6 +555,7 @@ const FeedScreen = forwardRef((props, ref) => {
               postId={item.id}
               hasUserBited={hasUserBited}
               onPress={handleBitePress}
+              theme={theme}
             />
           </View>
         </View>
@@ -408,13 +640,11 @@ const FeedScreen = forwardRef((props, ref) => {
         <Ionicons 
           name={viewMode === 'detail' ? 'grid-outline' : 'list-outline'} 
           size={24} 
-          color="#1976d2" 
+          color={theme.accent} 
         />
       </TouchableOpacity>
     </View>
   );
-
-
 
   const onPinchGestureEvent = useCallback(({ nativeEvent }) => {
     setScale(nativeEvent.scale);
@@ -514,229 +744,6 @@ const FeedScreen = forwardRef((props, ref) => {
       </PinchGestureHandler>
     </SafeAreaView>
   );
-});
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff'
-  },
-  contentContainer: {
-    paddingBottom: 20
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center'
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 15,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-    backgroundColor: '#fff',
-    marginBottom: 5
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#000'
-  },
-  viewModeButton: {
-    padding: 8,
-    borderRadius: 20,
-    backgroundColor: '#f5f5f5'
-  },
-  postContainer: {
-    marginBottom: 15,
-    backgroundColor: '#fff',
-    width: '100%'
-  },
-  postHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee'
-  },
-  headerContent: {
-    flexDirection: 'column',
-    flex: 1
-  },
-  usernameScrollContainer: {
-    marginBottom: 4
-  },
-  usernameContainer: {
-    flexDirection: 'row',
-    alignItems: 'center'
-  },
-  usernameWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center'
-  },
-  username: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#1976d2'
-  },
-  usernameSeparator: {
-    fontSize: 14,
-    color: '#666'
-  },
-  imageGalleryContainer: {
-    width: '100%',
-    aspectRatio: 1,
-    position: 'relative',
-    backgroundColor: '#f5f5f5'
-  },
-  actionBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  leftActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  biteButton: {
-    padding: 4,
-  },
-  breadEmoji: {
-    width: 38,
-    height: 38,
-  },
-  biteCountContainer: {
-    paddingHorizontal: 12,
-    paddingBottom: 4,
-  },
-  biteCountText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#000',
-  },
-  paginationDots: {
-    position: 'absolute',
-    bottom: 10,
-    flexDirection: 'row',
-    width: '100%',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  paginationDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: 'rgba(255, 255, 255, 0.5)',
-    marginHorizontal: 3,
-  },
-  paginationDotActive: {
-    backgroundColor: '#fff',
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  postImage: {
-    width: Dimensions.get('window').width,
-    aspectRatio: 1,
-    backgroundColor: '#f5f5f5'
-  },
-  postFooter: {
-    padding: 12
-  },
-  caption: {
-    fontSize: 14,
-    marginBottom: 5
-  },
-  postDate: {
-    fontSize: 12,
-    color: '#666',
-    marginTop: 8
-  },
-  gridItem: {
-    width: Dimensions.get('window').width / 3 - 2,
-    aspectRatio: 1,
-    margin: 1,
-    position: 'relative'
-  },
-  gridImage: {
-    width: '100%',
-    height: '100%',
-    backgroundColor: '#f5f5f5'
-  },
-  gridBiteCounter: {
-    position: 'absolute',
-    bottom: 5,
-    left: 5,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 10,
-  },
-  gridBreadEmoji: {
-    width: 19,
-    height: 19,
-    marginRight: 2,
-  },
-  gridBiteCount: {
-    fontSize: 10,
-    color: '#fff',
-    fontWeight: '600',
-  },
-  coOwnedBadge: {
-    position: 'absolute',
-    top: 5,
-    right: 5,
-    backgroundColor: 'rgba(25, 118, 210, 0.8)',
-    borderRadius: 12,
-    width: 24,
-    height: 24,
-    justifyContent: 'center',
-    alignItems: 'center'
-  },
-  multipleImagesBadge: {
-    position: 'absolute',
-    top: 5,
-    right: 34,
-    backgroundColor: 'rgba(25, 118, 210, 0.8)',
-    borderRadius: 12,
-    width: 24,
-    height: 24,
-    justifyContent: 'center',
-    alignItems: 'center'
-  },
-  optionsButton: {
-    padding: 8
-  },
-  loadingMore: {
-    paddingVertical: 16,
-    alignItems: 'center'
-  },
-  emptyContainer: {
-    padding: 20,
-    alignItems: 'center'
-  },
-  emptyText: {
-    fontSize: 16,
-    color: '#666'
-  },
-  locationContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 2
-  },
-  locationText: {
-    fontSize: 12,
-    color: '#666',
-    marginLeft: 4
-  }
 });
 
 export default FeedScreen;

@@ -27,6 +27,7 @@ import {
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { auth, db, storage } from '../../firebase';
 import { useAuth } from '../contexts/AuthContext';
+import { useTheme } from '../contexts/ThemeContext';
 import { uploadProfilePicture } from '../utils/profilePicture';
 
 // Import bread slice images and preload them
@@ -58,6 +59,8 @@ const BreadButton = React.memo(({ postId, hasUserBited, onPress }) => (
 
 const ProfileScreen = forwardRef((props, ref) => {
   const { logout } = useAuth();
+  const { theme, themeMode, setTheme } = useTheme();
+  const styles = getStyles(theme);
   const [username, setUsername] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
@@ -668,7 +671,7 @@ const ProfileScreen = forwardRef((props, ref) => {
             style={styles.settingsButton}
             onPress={() => setShowSettings(true)}
           >
-            <Ionicons name="settings-outline" size={24} color="black" />
+            <Ionicons name="settings-outline" size={24} color={theme.text} />
           </TouchableOpacity>
         </View>
       </View>
@@ -909,7 +912,7 @@ const ProfileScreen = forwardRef((props, ref) => {
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Settings</Text>
               <TouchableOpacity onPress={() => setShowSettings(false)}>
-                <Ionicons name="close" size={24} color="black" />
+                <Ionicons name="close" size={24} color={theme.text} />
               </TouchableOpacity>
             </View>
 
@@ -942,6 +945,50 @@ const ProfileScreen = forwardRef((props, ref) => {
               />
               <Text style={styles.charCount}>{bio.length}/150</Text>
 
+              {/* Dark Mode Section */}
+              <Text style={styles.inputLabel}>Appearance</Text>
+              <View style={styles.themeContainer}>
+                <TouchableOpacity
+                  style={[
+                    styles.themeOption,
+                    themeMode === 'light' && styles.themeOptionSelected
+                  ]}
+                  onPress={() => setTheme('light')}
+                >
+                  <Ionicons 
+                    name="sunny-outline" 
+                    size={20} 
+                    color={themeMode === 'light' ? '#007AFF' : theme.textSecondary} 
+                  />
+                  <Text style={[
+                    styles.themeOptionText,
+                    themeMode === 'light' && styles.themeOptionTextSelected
+                  ]}>
+                    Light
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.themeOption,
+                    themeMode === 'dark' && styles.themeOptionSelected
+                  ]}
+                  onPress={() => setTheme('dark')}
+                >
+                  <Ionicons 
+                    name="moon-outline" 
+                    size={20} 
+                    color={themeMode === 'dark' ? '#007AFF' : theme.textSecondary} 
+                  />
+                  <Text style={[
+                    styles.themeOptionText,
+                    themeMode === 'dark' && styles.themeOptionTextSelected
+                  ]}>
+                    Dark
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
               <TouchableOpacity 
                 style={styles.saveButton} 
                 onPress={handleSaveSettings}
@@ -963,10 +1010,10 @@ const ProfileScreen = forwardRef((props, ref) => {
   );
 });
 
-const styles = StyleSheet.create({
+const getStyles = (theme) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff'
+    backgroundColor: theme.background
   },
   header: {
     padding: 15
@@ -979,7 +1026,8 @@ const styles = StyleSheet.create({
   },
   username: {
     fontSize: 20,
-    fontWeight: 'bold'
+    fontWeight: 'bold',
+    color: theme.text
   },
   profileInfo: {
     flexDirection: 'row',
@@ -1031,10 +1079,11 @@ const styles = StyleSheet.create({
   },
   statNumber: {
     fontSize: 18,
-    fontWeight: 'bold'
+    fontWeight: 'bold',
+    color: theme.text
   },
   statLabel: {
-    color: '#666'
+    color: theme.textSecondary
   },
   bioContainer: {
     paddingHorizontal: 15,
@@ -1043,16 +1092,17 @@ const styles = StyleSheet.create({
   displayName: {
     fontWeight: 'bold',
     fontSize: 16,
-    marginBottom: 4
+    marginBottom: 4,
+    color: theme.text
   },
   bio: {
     fontSize: 14,
-    color: '#262626',
+    color: theme.text,
     lineHeight: 20
   },
   noBio: {
     fontSize: 14,
-    color: '#666',
+    color: theme.textSecondary,
     fontStyle: 'italic'
   },
   bioInput: {
@@ -1062,7 +1112,7 @@ const styles = StyleSheet.create({
   },
   charCount: {
     fontSize: 12,
-    color: '#666',
+    color: theme.textSecondary,
     textAlign: 'right',
     marginTop: 4
   },
@@ -1071,11 +1121,13 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     marginBottom: 6,
     marginTop: 16,
-    color: '#262626'
+    color: theme.text
   },
-  modalView: {
+  modalContainer: {
     flex: 1,
-    backgroundColor: '#fff'
+    backgroundColor: theme.overlay,
+    justifyContent: 'center',
+    alignItems: 'center'
   },
   modalHeader: {
     flexDirection: 'row',
@@ -1083,11 +1135,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 15,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee'
+    borderBottomColor: theme.border
   },
   modalTitle: {
     fontSize: 18,
-    fontWeight: 'bold'
+    fontWeight: 'bold',
+    color: theme.text
   },
   searchInput: {
     margin: 15,
@@ -1113,14 +1166,8 @@ const styles = StyleSheet.create({
     color: '#666',
     padding: 20
   },
-  modalContainer: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center'
-  },
   modalContent: {
-    backgroundColor: '#fff',
+    backgroundColor: theme.modal,
     padding: 20,
     borderRadius: 10,
     width: '80%'
@@ -1130,10 +1177,12 @@ const styles = StyleSheet.create({
   },
   input: {
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: theme.border,
     borderRadius: 8,
     padding: 10,
-    fontSize: 16
+    fontSize: 16,
+    backgroundColor: theme.inputBackground,
+    color: theme.text
   },
   saveButton: {
     backgroundColor: '#0095f6',
@@ -1585,6 +1634,36 @@ const styles = StyleSheet.create({
   logoutButton: {
     backgroundColor: '#ff3b30',
     marginTop: 40
+  },
+  themeContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+    gap: 10
+  },
+  themeOption: {
+    flex: 1,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: theme.border,
+    borderRadius: 8,
+    alignItems: 'center',
+    backgroundColor: theme.surface
+  },
+  themeOptionSelected: {
+    borderColor: theme.primary,
+    backgroundColor: theme.primary + '10'
+  },
+  themeOptionText: {
+    fontSize: 14,
+    fontWeight: '500',
+    marginTop: 5,
+    color: theme.textSecondary
+  },
+  themeOptionTextSelected: {
+    fontWeight: 'bold',
+    color: theme.primary
   }
 });
 

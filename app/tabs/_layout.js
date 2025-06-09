@@ -11,6 +11,7 @@ import Animated, {
     useSharedValue,
     withTiming
 } from 'react-native-reanimated';
+import { useTheme } from '../contexts/ThemeContext';
 
 // Import your tab screens
 import FeedScreen from './FeedScreen';
@@ -22,6 +23,7 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 export default function TabsLayout() {
   const pathname = usePathname();
   const localSearchParams = useLocalSearchParams();
+  const { theme } = useTheme();
   const [currentTabIndex, setCurrentTabIndex] = useState(0);
   const translateX = useSharedValue(0);
   const feedScreenRef = useRef(null);
@@ -121,7 +123,7 @@ export default function TabsLayout() {
 
   // Tab bar component
   const TabBar = () => (
-    <View style={styles.tabBar}>
+    <View style={[styles.tabBar, { backgroundColor: theme.tabBarBackground, borderTopColor: theme.border }]}>
       {tabs.map((tab, index) => {
         const isFocused = currentTabIndex === index;
         return (
@@ -133,9 +135,9 @@ export default function TabsLayout() {
             <Ionicons 
               name={tab.icon} 
               size={24} 
-              color={isFocused ? '#1976d2' : '#666'} 
+              color={isFocused ? theme.tabBarActive : theme.tabBarInactive} 
             />
-            <Text style={[styles.tabLabel, { color: isFocused ? '#1976d2' : '#666' }]}>
+            <Text style={[styles.tabLabel, { color: isFocused ? theme.tabBarActive : theme.tabBarInactive }]}>
               {tab.label}
             </Text>
           </TouchableOpacity>
@@ -201,9 +203,7 @@ const styles = StyleSheet.create({
   },
   tabBar: {
     flexDirection: 'row',
-    backgroundColor: '#fff',
     borderTopWidth: 1,
-    borderTopColor: '#eee',
     paddingBottom: 34, // Safe area
     paddingTop: 8,
   },

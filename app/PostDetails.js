@@ -24,11 +24,14 @@ import {
 import * as Progress from 'react-native-progress';
 import { auth, db, storage } from '../firebase';
 import LocationPicker from './components/LocationPicker';
+import { useTheme } from './contexts/ThemeContext';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const IMAGE_SIZE = SCREEN_WIDTH;
 
 export default function PostDetails() {
+  const { theme } = useTheme();
+  const styles = getStyles(theme);
   const { imageUris } = useLocalSearchParams();
   const router = useRouter();
   const scrollViewRef = useRef(null);
@@ -390,7 +393,7 @@ export default function PostDetails() {
       <View style={styles.captionContainer}>
         <TextInput
           placeholder="Write a caption..."
-          placeholderTextColor="#999"
+          placeholderTextColor={theme.textSecondary}
           value={caption}
           onChangeText={setCaption}
           onFocus={handleCaptionFocus}
@@ -405,7 +408,7 @@ export default function PostDetails() {
           <TextInput
             style={styles.searchInput}
             placeholder="Invite friends to post..."
-            placeholderTextColor="#999"
+            placeholderTextColor={theme.textSecondary}
             value={searchQuery}
             onChangeText={handleSearch}
             onFocus={handleFriendsSearchFocus}
@@ -426,7 +429,7 @@ export default function PostDetails() {
       >
         <View style={styles.header}>
           <TouchableOpacity onPress={() => router.back()}>
-            <Ionicons name="arrow-back" size={24} color="#000" />
+            <Ionicons name="arrow-back" size={24} color={theme.text} />
           </TouchableOpacity>
           <TouchableOpacity 
             style={styles.headerTitleArea}
@@ -553,14 +556,14 @@ export default function PostDetails() {
   );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (theme) => StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#fff'
+    backgroundColor: theme.background
   },
   keyboardAvoidingView: {
     flex: 1,
-    backgroundColor: '#fff'
+    backgroundColor: theme.background
   },
   header: {
     flexDirection: 'row',
@@ -568,8 +571,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-    backgroundColor: '#fff'
+    borderBottomColor: theme.border,
+    backgroundColor: theme.background
   },
   headerTitleArea: {
     flex: 1,
@@ -578,7 +581,8 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 18,
-    fontWeight: '600'
+    fontWeight: '600',
+    color: theme.text
   },
   postButton: {
     paddingHorizontal: 16,
@@ -595,11 +599,11 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    backgroundColor: '#fff'
+    backgroundColor: theme.background
   },
   scrollContent: {
     flexGrow: 1,
-    backgroundColor: '#fff'
+    backgroundColor: theme.background
   },
   imageGalleryContainer: {
     width: '100%',
@@ -632,7 +636,7 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   captionContainer: {
-    backgroundColor: '#fff',
+    backgroundColor: theme.surface,
     marginVertical: 10,
     marginHorizontal: 16,
     borderRadius: 8
@@ -642,7 +646,8 @@ const styles = StyleSheet.create({
     minHeight: 100,
     maxHeight: 200,
     textAlignVertical: 'top',
-    padding: 8
+    padding: 8,
+    color: theme.text
   },
   tagFriendsSection: {
     marginTop: 10,
@@ -651,20 +656,22 @@ const styles = StyleSheet.create({
   friendsListContainer: {
     height: 336, // Height for exactly 6 friends (56px each)
     borderWidth: 1,
-    borderColor: '#eee',
+    borderColor: theme.border,
     borderRadius: 8,
-    marginTop: 10
+    marginTop: 10,
+    backgroundColor: theme.surface
   },
   searchContainer: {
     marginBottom: 15
   },
   searchInput: {
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: theme.border,
     borderRadius: 8,
     padding: 10,
     fontSize: 16,
-    backgroundColor: '#f8f8f8'
+    backgroundColor: theme.surface,
+    color: theme.text
   },
   selectedFriendsContainer: {
     marginBottom: 15,
@@ -690,7 +697,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     marginBottom: 10,
-    color: '#262626'
+    color: theme.text
   },
   friendItem: {
     flexDirection: 'row',
@@ -699,7 +706,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee'
+    borderBottomColor: theme.border
   },
   selectedFriend: {
     backgroundColor: '#f0f8ff',
@@ -710,7 +717,8 @@ const styles = StyleSheet.create({
     flex: 1
   },
   friendName: {
-    fontSize: 16
+    fontSize: 16,
+    color: theme.text
   },
   selectedFriendName: {
     color: '#007AFF',
@@ -729,12 +737,12 @@ const styles = StyleSheet.create({
   },
   noResultsText: {
     fontSize: 16,
-    color: '#666',
+    color: theme.textSecondary,
     textAlign: 'center'
   },
   noFriendsText: {
     textAlign: 'center',
-    color: '#666',
+    color: theme.textSecondary,
     fontStyle: 'italic'
   },
   progressContainer: {
@@ -778,7 +786,7 @@ const styles = StyleSheet.create({
   },
   modalContainer: {
     flex: 1,
-    backgroundColor: '#fff'
+    backgroundColor: theme.background
   },
   modalHeader: {
     flexDirection: 'row',
@@ -787,11 +795,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee'
+    borderBottomColor: theme.border
   },
   modalTitle: {
     fontSize: 18,
-    fontWeight: '600'
+    fontWeight: '600',
+    color: theme.text
   },
   cancelText: {
     fontSize: 16,

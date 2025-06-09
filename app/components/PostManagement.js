@@ -26,6 +26,7 @@ import {
 } from 'react-native';
 import * as Progress from 'react-native-progress';
 import { auth, db, storage } from '../../firebase';
+import { useTheme } from '../contexts/ThemeContext';
 import LocationPicker from './LocationPicker';
 
 const WINDOW_WIDTH = Dimensions.get('window').width;
@@ -38,6 +39,8 @@ export default function PostManagement({
   setShowPostOptions,
   onDeletePost
 }) {
+  const { theme } = useTheme();
+  const styles = getStyles(theme);
   const [editingCaption, setEditingCaption] = useState(false);
   const [newCaption, setNewCaption] = useState('');
   const [showAddCoOwners, setShowAddCoOwners] = useState(false);
@@ -477,7 +480,7 @@ export default function PostManagement({
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Edit Caption</Text>
             <TouchableOpacity onPress={() => setEditingCaption(false)}>
-              <Ionicons name="close" size={24} color="black" />
+              <Ionicons name="close" size={24} color={theme.text} />
             </TouchableOpacity>
           </View>
 
@@ -486,6 +489,7 @@ export default function PostManagement({
             value={newCaption}
             onChangeText={setNewCaption}
             placeholder="Write a caption..."
+            placeholderTextColor={theme.textSecondary}
             multiline
             maxLength={2200}
           />
@@ -529,7 +533,7 @@ export default function PostManagement({
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Add Co-owners</Text>
             <TouchableOpacity onPress={() => setShowAddCoOwners(false)}>
-              <Ionicons name="close" size={24} color="black" />
+              <Ionicons name="close" size={24} color={theme.text} />
             </TouchableOpacity>
           </View>
 
@@ -550,7 +554,7 @@ export default function PostManagement({
                       style={styles.removeSelectedButton}
                       onPress={() => handleRemoveSelectedFriend(friend.id)}
                     >
-                      <Ionicons name="close-circle" size={20} color="#666" />
+                      <Ionicons name="close-circle" size={20} color={theme.textSecondary} />
                     </TouchableOpacity>
                   </View>
                 ))}
@@ -567,6 +571,7 @@ export default function PostManagement({
                 searchUsers(text);
               }}
               placeholder="Search friends..."
+              placeholderTextColor={theme.textSecondary}
             />
           </View>
 
@@ -637,7 +642,7 @@ export default function PostManagement({
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Add More Photos</Text>
             <TouchableOpacity onPress={() => setShowAddPhotos(false)}>
-              <Ionicons name="close" size={24} color="black" />
+              <Ionicons name="close" size={24} color={theme.text} />
             </TouchableOpacity>
           </View>
 
@@ -820,7 +825,7 @@ export default function PostManagement({
   );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (theme) => StyleSheet.create({
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
@@ -856,7 +861,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.5)'
   },
   modalContent: {
-    backgroundColor: 'white',
+    backgroundColor: theme.background,
     borderRadius: 15,
     padding: 20,
     width: '90%',
@@ -877,20 +882,23 @@ const styles = StyleSheet.create({
     marginBottom: 15,
     paddingBottom: 15,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee'
+    borderBottomColor: theme.border
   },
   modalTitle: {
     fontSize: 18,
-    fontWeight: 'bold'
+    fontWeight: 'bold',
+    color: theme.text
   },
   captionInput: {
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: theme.border,
     borderRadius: 8,
     padding: 12,
     marginVertical: 15,
     minHeight: 100,
-    textAlignVertical: 'top'
+    textAlignVertical: 'top',
+    color: theme.text,
+    backgroundColor: theme.surface
   },
   saveButton: {
     backgroundColor: '#007AFF',
@@ -910,7 +918,8 @@ const styles = StyleSheet.create({
   selectedFriendsTitle: {
     fontSize: 16,
     fontWeight: '600',
-    marginBottom: 10
+    marginBottom: 10,
+    color: theme.text
   },
   selectedFriendsScroll: {
     paddingHorizontal: 10
@@ -918,14 +927,15 @@ const styles = StyleSheet.create({
   selectedFriendChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f0f0f0',
+    backgroundColor: theme.surface,
     padding: 8,
     borderRadius: 20,
     marginRight: 10
   },
   selectedFriendUsername: {
     fontSize: 14,
-    marginRight: 5
+    marginRight: 5,
+    color: theme.text
   },
   removeSelectedButton: {
     padding: 2
@@ -935,27 +945,30 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: theme.border,
     borderRadius: 8,
     padding: 10,
-    marginBottom: 10
+    marginBottom: 10,
+    color: theme.text,
+    backgroundColor: theme.surface
   },
   searchResultItem: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 10,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee'
+    borderBottomColor: theme.border
   },
   searchResultUsername: {
     fontSize: 14,
-    flex: 1
+    flex: 1,
+    color: theme.text
   },
   checkBox: {
     width: 24,
     height: 24,
     borderWidth: 2,
-    borderColor: '#ddd',
+    borderColor: theme.border,
     borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center'
@@ -980,7 +993,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: -10,
     right: -10,
-    backgroundColor: 'white',
+    backgroundColor: theme.background,
     borderRadius: 12
   },
   emptyImagesContainer: {
@@ -989,7 +1002,7 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 14,
-    color: '#666'
+    color: theme.textSecondary
   },
   photoButtonsContainer: {
     flexDirection: 'row',
@@ -1024,7 +1037,7 @@ const styles = StyleSheet.create({
   progressText: {
     marginTop: 5,
     fontSize: 14,
-    color: '#666'
+    color: theme.textSecondary
   },
   disabledButton: {
     opacity: 0.5
@@ -1037,7 +1050,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 10,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee'
+    borderBottomColor: theme.border
   },
   managePhotoImage: {
     width: 80,
