@@ -6,7 +6,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { usePathname, useRouter } from 'expo-router';
 import { arrayUnion, collection, deleteDoc, doc, getDoc, getDocs, increment, limit, orderBy, query, updateDoc, where } from 'firebase/firestore';
 import { deleteObject } from 'firebase/storage';
-import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
@@ -57,10 +57,127 @@ const BreadButton = React.memo(({ postId, hasUserBited, onPress }) => (
   </TouchableOpacity>
 ));
 
+// Memoized ProfilePicture component to prevent unnecessary re-renders
+const ProfilePicture = React.memo(({ profilePicUrl, uploadingPic, theme, onPress }) => {
+  const styles = getStyles(theme);
+  
+  return (
+    <TouchableOpacity 
+      style={styles.profilePicContainer}
+      onPress={onPress}
+    >
+      <View style={styles.profilePic}>
+        {profilePicUrl ? (
+          <Image 
+            source={{ uri: profilePicUrl }} 
+            style={styles.profilePicImage} 
+          />
+        ) : (
+          <Ionicons name="person" size={40} color={theme.textSecondary} />
+        )}
+        {uploadingPic && (
+          <View style={styles.uploadingOverlay}>
+            <ActivityIndicator color="#fff" />
+          </View>
+        )}
+      </View>
+      <View style={styles.editIconContainer}>
+        <Ionicons name="camera" size={14} color="#fff" />
+      </View>
+    </TouchableOpacity>
+  );
+});
+
+// Memoized Header component to prevent unnecessary re-renders
+const Header = React.memo(({ 
+  username, 
+  displayName, 
+  bio, 
+  profilePicUrl, 
+  uploadingPic,
+  postsCount,
+  friendsCount,
+  friendRequestsCount,
+  theme,
+  onProfilePicPress,
+  onAddFriendPress,
+  onFriendRequestsPress,
+  onSettingsPress,
+  onFriendsPress
+}) => {
+  const styles = getStyles(theme);
+  
+  return (
+    <View style={styles.header}>
+      <View style={styles.headerTop}>
+        <Text style={styles.username}>{username}</Text>
+        <View style={styles.headerButtons}>
+          <TouchableOpacity 
+            style={styles.addFriendButton}
+            onPress={onAddFriendPress}
+          >
+            <Ionicons name="person-add-outline" size={24} color="#0095f6" />
+          </TouchableOpacity>
+          {friendRequestsCount > 0 && (
+            <TouchableOpacity 
+              style={styles.requestButton}
+              onPress={onFriendRequestsPress}
+            >
+              <Ionicons name="person-add" size={24} color="#0095f6" />
+              <View style={styles.requestBadge}>
+                <Text style={styles.requestCount}>{friendRequestsCount}</Text>
+              </View>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity 
+            style={styles.settingsButton}
+            onPress={onSettingsPress}
+          >
+            <Ionicons name="settings-outline" size={24} color={theme.text} />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <View style={styles.profileInfo}>
+        <ProfilePicture
+          profilePicUrl={profilePicUrl}
+          uploadingPic={uploadingPic}
+          theme={theme}
+          onPress={onProfilePicPress}
+        />
+
+        <View style={styles.statsContainer}>
+          <View style={styles.statItem}>
+            <Text style={styles.statNumber}>{postsCount}</Text>
+            <Text style={styles.statLabel}>Meals</Text>
+          </View>
+
+          <TouchableOpacity 
+            style={styles.statItem}
+            onPress={onFriendsPress}
+          >
+            <Text style={styles.statNumber}>{friendsCount}</Text>
+            <Text style={styles.statLabel}>Friends</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <View style={styles.bioContainer}>
+        {displayName && <Text style={styles.displayName}>{displayName}</Text>}
+        {bio ? (
+          <Text style={styles.bio}>{bio}</Text>
+        ) : (
+          <Text style={styles.noBio}>No bio yet</Text>
+        )}
+      </View>
+    </View>
+  );
+});
+
 const ProfileScreen = forwardRef((props, ref) => {
   const { logout } = useAuth();
   const { theme, themeMode, setTheme } = useTheme();
-  const styles = getStyles(theme);
+  const styles = useMemo(() => getStyles(theme), [theme]);
   const [username, setUsername] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
@@ -83,6 +200,90 @@ const ProfileScreen = forwardRef((props, ref) => {
   const router = useRouter();
   const gridListRef = useRef(null);
   const swipeableRef = useRef(null);
+
+  // Memoized callback functions to prevent unnecessary re-renders
+  const handleAddFriendPress = useCallback(() => setShowAddFriend(true), []);
+  const handleFriendRequestsPress = useCallback(() => setShowFriendRequests(true), []);
+  const handleSettingsPress = useCallback(() => setShowSettings(true), []);
+  const handleFriendsPress = useCallback(() => {
+    router.push({
+      pathname: '/FriendsList',
+      params: { userId: auth.currentUser.uid }
+    });
+  }, [router]);
+
+  const handleProfilePicPress = useCallback(async () => {
+    const options = ['Take Photo', 'Choose from Library', 'Cancel'];
+    Alert.alert(
+      'Update Profile Picture',
+      'Choose an option',
+      [
+        {
+          text: options[0],
+          onPress: () => pickProfilePic('camera')
+        },
+        {
+          text: options[1],
+          onPress: () => pickProfilePic('library')
+        },
+        {
+          text: options[2],
+          style: 'cancel'
+        }
+      ]
+    );
+  }, [pickProfilePic]);
+
+  const pickProfilePic = useCallback(async (type) => {
+    try {
+      let result;
+      const options = {
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.7,
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        presentationStyle: 'overFullScreen'
+      };
+
+      // Add platform-specific options
+      if (Platform.OS === 'android') {
+        options.cropperCircleOverlay = true;
+      } else {
+        // On iOS, we'll handle the circular crop through image manipulation
+        options.allowsEditing = true;
+      }
+
+      if (type === 'camera') {
+        result = await ImagePicker.launchCameraAsync(options);
+      } else {
+        result = await ImagePicker.launchImageLibraryAsync(options);
+      }
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        // For iOS, we'll handle the circular crop through image manipulation
+        if (Platform.OS === 'ios') {
+          const manipulateResult = await manipulateAsync(
+            result.assets[0].uri,
+            [
+              { crop: {
+                height: result.assets[0].height,
+                width: result.assets[0].width,
+                originX: 0,
+                originY: 0
+              }},
+            ],
+            { compress: 0.7, format: 'jpeg' }
+          );
+          await uploadProfilePic(manipulateResult.uri);
+        } else {
+          await uploadProfilePic(result.assets[0].uri);
+        }
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'Failed to pick image. Please try again.');
+    }
+  }, []);
 
   // Expose scrollToTop function to parent component
   useImperativeHandle(ref, () => ({
@@ -363,79 +564,6 @@ const ProfileScreen = forwardRef((props, ref) => {
     }
   };
 
-  const handleProfilePicPress = async () => {
-    const options = ['Take Photo', 'Choose from Library', 'Cancel'];
-    Alert.alert(
-      'Update Profile Picture',
-      'Choose an option',
-      [
-        {
-          text: options[0],
-          onPress: () => pickProfilePic('camera')
-        },
-        {
-          text: options[1],
-          onPress: () => pickProfilePic('library')
-        },
-        {
-          text: options[2],
-          style: 'cancel'
-        }
-      ]
-    );
-  };
-
-  const pickProfilePic = async (type) => {
-    try {
-      let result;
-      const options = {
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.7,
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        presentationStyle: 'overFullScreen'
-      };
-
-      // Add platform-specific options
-      if (Platform.OS === 'android') {
-        options.cropperCircleOverlay = true;
-      } else {
-        // On iOS, we'll handle the circular crop through image manipulation
-        options.allowsEditing = true;
-      }
-
-      if (type === 'camera') {
-        result = await ImagePicker.launchCameraAsync(options);
-      } else {
-        result = await ImagePicker.launchImageLibraryAsync(options);
-      }
-
-      if (!result.canceled && result.assets && result.assets.length > 0) {
-        // For iOS, we'll handle the circular crop through image manipulation
-        if (Platform.OS === 'ios') {
-          const manipulateResult = await manipulateAsync(
-            result.assets[0].uri,
-            [
-              { crop: {
-                height: result.assets[0].height,
-                width: result.assets[0].width,
-                originX: 0,
-                originY: 0
-              }},
-            ],
-            { compress: 0.7, format: 'jpeg' }
-          );
-          await uploadProfilePic(manipulateResult.uri);
-        } else {
-          await uploadProfilePic(result.assets[0].uri);
-        }
-      }
-    } catch (error) {
-      console.error('Error picking image:', error);
-      Alert.alert('Error', 'Failed to pick image. Please try again.');
-    }
-  };
-
   const uploadProfilePic = async (uri) => {
     if (!uri) return;
     setUploadingPic(true);
@@ -645,92 +773,6 @@ const ProfileScreen = forwardRef((props, ref) => {
     </TouchableOpacity>
   );
 
-  const Header = () => (
-    <View style={styles.header}>
-      <View style={styles.headerTop}>
-        <Text style={styles.username}>{username}</Text>
-        <View style={styles.headerButtons}>
-          <TouchableOpacity 
-            style={styles.addFriendButton}
-            onPress={() => setShowAddFriend(true)}
-          >
-            <Ionicons name="person-add-outline" size={24} color="#0095f6" />
-          </TouchableOpacity>
-          {friendRequests.length > 0 && (
-            <TouchableOpacity 
-              style={styles.requestButton}
-              onPress={() => setShowFriendRequests(true)}
-            >
-              <Ionicons name="person-add" size={24} color="#0095f6" />
-              <View style={styles.requestBadge}>
-                <Text style={styles.requestCount}>{friendRequests.length}</Text>
-              </View>
-            </TouchableOpacity>
-          )}
-          <TouchableOpacity 
-            style={styles.settingsButton}
-            onPress={() => setShowSettings(true)}
-          >
-            <Ionicons name="settings-outline" size={24} color={theme.text} />
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      <View style={styles.profileInfo}>
-        <TouchableOpacity 
-          style={styles.profilePicContainer}
-          onPress={handleProfilePicPress}
-        >
-          <View style={styles.profilePic}>
-            {profilePicUrl ? (
-              <Image 
-                source={{ uri: profilePicUrl }} 
-                style={styles.profilePicImage} 
-              />
-            ) : (
-              <Ionicons name="person" size={40} color="#666" />
-            )}
-            {uploadingPic && (
-              <View style={styles.uploadingOverlay}>
-                <ActivityIndicator color="#fff" />
-              </View>
-            )}
-          </View>
-          <View style={styles.editIconContainer}>
-            <Ionicons name="camera" size={14} color="#fff" />
-          </View>
-        </TouchableOpacity>
-
-        <View style={styles.statsContainer}>
-          <View style={styles.statItem}>
-            <Text style={styles.statNumber}>{posts.length}</Text>
-            <Text style={styles.statLabel}>Meals</Text>
-          </View>
-
-          <TouchableOpacity 
-            style={styles.statItem}
-            onPress={() => router.push({
-              pathname: '/FriendsList',
-              params: { userId: auth.currentUser.uid }
-            })}
-          >
-            <Text style={styles.statNumber}>{friendsList.length}</Text>
-            <Text style={styles.statLabel}>Friends</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      <View style={styles.bioContainer}>
-        {displayName && <Text style={styles.displayName}>{displayName}</Text>}
-        {bio ? (
-          <Text style={styles.bio}>{bio}</Text>
-        ) : (
-          <Text style={styles.noBio}>No bio yet</Text>
-        )}
-      </View>
-    </View>
-  );
-
   const renderContent = () => {
     if (loading && !refreshing) {
       return (
@@ -748,7 +790,24 @@ const ProfileScreen = forwardRef((props, ref) => {
         renderItem={renderGridPost}
         keyExtractor={item => item.id ? `post-${item.id}` : `generated-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`}
         numColumns={3}
-        ListHeaderComponent={Header}
+        ListHeaderComponent={
+          <Header
+            username={username}
+            displayName={displayName}
+            bio={bio}
+            profilePicUrl={profilePicUrl}
+            uploadingPic={uploadingPic}
+            postsCount={posts.length}
+            friendsCount={friendsList.length}
+            friendRequestsCount={friendRequests.length}
+            theme={theme}
+            onProfilePicPress={handleProfilePicPress}
+            onAddFriendPress={handleAddFriendPress}
+            onFriendRequestsPress={handleFriendRequestsPress}
+            onSettingsPress={handleSettingsPress}
+            onFriendsPress={handleFriendsPress}
+          />
+        }
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -793,7 +852,7 @@ const ProfileScreen = forwardRef((props, ref) => {
 
       {/* Add Friend Modal */}
       <Modal
-        animationType="slide"
+        animationType="fade"
         transparent={true}
         visible={showAddFriend}
         onRequestClose={() => setShowAddFriend(false)}
@@ -862,7 +921,7 @@ const ProfileScreen = forwardRef((props, ref) => {
 
       {/* Friend Requests Modal */}
       <Modal
-        animationType="slide"
+        animationType="fade"
         transparent={true}
         visible={showFriendRequests}
         onRequestClose={() => setShowFriendRequests(false)}
@@ -902,7 +961,7 @@ const ProfileScreen = forwardRef((props, ref) => {
 
       {/* Settings Modal */}
       <Modal
-        animationType="slide"
+        animationType="fade"
         transparent={true}
         visible={showSettings}
         onRequestClose={() => setShowSettings(false)}
@@ -1041,7 +1100,7 @@ const getStyles = (theme) => StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: '#f0f0f0',
+    backgroundColor: theme.surfaceSecondary,
     justifyContent: 'center',
     alignItems: 'center',
     overflow: 'hidden'

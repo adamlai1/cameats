@@ -125,6 +125,10 @@ const getStyles = (theme) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  rightActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   biteButton: {
     padding: 4,
   },
@@ -178,7 +182,7 @@ const getStyles = (theme) => StyleSheet.create({
   postDate: {
     fontSize: 12,
     color: theme.textSecondary,
-    marginTop: 8
+    marginTop: -20
   },
   gridItem: {
     width: Dimensions.get('window').width / 3 - 2,
@@ -502,7 +506,7 @@ const FeedScreen = forwardRef((props, ref) => {
               style={styles.optionsButton}
               onPress={() => handlePostOptionsPress(item)}
             >
-              <Ionicons name="ellipsis-horizontal" size={20} color="#000" />
+              <Ionicons name="ellipsis-horizontal" size={20} color={theme.text} />
             </TouchableOpacity>
           )}
         </View>
@@ -548,7 +552,7 @@ const FeedScreen = forwardRef((props, ref) => {
           </View>
         </TapGestureHandler>
 
-        {/* Instagram-style action bar - positioned like Instagram */}
+        {/* Combined action bar with bread button (left) and date (right) */}
         <View style={styles.actionBar}>
           <View style={styles.leftActions}>
             <BreadButton
@@ -557,6 +561,11 @@ const FeedScreen = forwardRef((props, ref) => {
               onPress={handleBitePress}
               theme={theme}
             />
+          </View>
+          <View style={styles.rightActions}>
+            <Text style={styles.postDate}>
+              {item.createdAt?.toDate().toLocaleString() || ''}
+            </Text>
           </View>
         </View>
 
@@ -569,9 +578,6 @@ const FeedScreen = forwardRef((props, ref) => {
 
         <View style={styles.postFooter}>
           <Text style={styles.caption}>{item.caption}</Text>
-          <Text style={styles.postDate}>
-            {item.createdAt?.toDate().toLocaleString() || ''}
-          </Text>
         </View>
       </View>
     );

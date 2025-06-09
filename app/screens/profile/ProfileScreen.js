@@ -12,10 +12,12 @@ import { GridPost } from '../../components/Post';
 import { ProfileHeader } from '../../components/profile/ProfileHeader';
 import { AddFriendModal, FriendRequestsModal } from '../../components/profile/ProfileModals';
 import { LoadingState } from '../../components/ui/LoadingState';
+import { useTheme } from '../../contexts/ThemeContext';
 import * as postService from '../../services/postService';
 import * as userService from '../../services/userService';
 
 const ProfileScreen = forwardRef((props, ref) => {
+  const { theme } = useTheme();
   const [username, setUsername] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
@@ -177,6 +179,7 @@ const ProfileScreen = forwardRef((props, ref) => {
               params: { userId: auth.currentUser.uid }
             })}
             friendRequestsCount={friendRequests.length}
+            theme={theme}
           />
         }
         refreshControl={

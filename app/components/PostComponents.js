@@ -38,8 +38,9 @@ export const createPostOptimisticUpdater = (setPosts) => {
 };
 
 // Shared BreadButton component
-export const BreadButton = React.memo(({ postId, hasUserBited, onPress }) => {
+export const BreadButton = React.memo(({ postId, hasUserBited, onPress, theme }) => {
   const [visuallyBitten, setVisuallyBitten] = React.useState(hasUserBited);
+  const styles = getStyles(theme);
   
   React.useEffect(() => {
     setVisuallyBitten(hasUserBited);
@@ -220,10 +221,11 @@ export const PostContent = React.memo(({ post, onBitePress, onDoubleTap, childre
 });
 
 // Shared post action bar component
-export const PostActionBar = React.memo(({ post, onBitePress }) => {
+export const PostActionBar = React.memo(({ post, onBitePress, theme }) => {
   const userId = auth.currentUser.uid;
   const hasUserBited = post.bitedBy?.includes(userId);
   const biteCount = typeof post.bites === 'number' ? post.bites : 0;
+  const styles = getStyles(theme);
 
   return (
     <>
@@ -233,6 +235,7 @@ export const PostActionBar = React.memo(({ post, onBitePress }) => {
             postId={post.id}
             hasUserBited={hasUserBited}
             onPress={onBitePress}
+            theme={theme}
           />
         </View>
       </View>
@@ -246,7 +249,7 @@ export const PostActionBar = React.memo(({ post, onBitePress }) => {
   );
 });
 
-const styles = StyleSheet.create({
+const getStyles = (theme) => StyleSheet.create({
   actionBar: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -272,6 +275,6 @@ const styles = StyleSheet.create({
   biteCountText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#000',
+    color: theme.text,
   },
 }); 

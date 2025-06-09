@@ -610,7 +610,7 @@ export default function ProfilePostsView() {
               style={styles.optionsButton}
               onPress={() => handlePostOptionsPress(item)}
             >
-              <Ionicons name="ellipsis-horizontal" size={20} color="#000" />
+              <Ionicons name="ellipsis-horizontal" size={20} color={theme.text} />
             </TouchableOpacity>
           )}
         </View>
@@ -656,14 +656,23 @@ export default function ProfilePostsView() {
           </View>
         </TapGestureHandler>
 
-        {/* Instagram-style action bar */}
+        {/* Combined action bar with bread button (left) and date (right) */}
         <View style={styles.actionBar}>
           <View style={styles.leftActions}>
             <BreadButton
               postId={item.id}
               hasUserBited={hasUserBited}
               onPress={handleBitePress}
+              theme={theme}
             />
+          </View>
+          <View style={styles.rightActions}>
+            <Text style={styles.postDate}>
+              {item.createdAt?.toDate ? 
+                item.createdAt.toDate().toLocaleString() : 
+                'Unknown date'
+              }
+            </Text>
           </View>
         </View>
 
@@ -678,12 +687,6 @@ export default function ProfilePostsView() {
           {item.caption && (
             <Text style={styles.caption}>{item.caption}</Text>
           )}
-          <Text style={styles.postDate}>
-            {item.createdAt?.toDate ? 
-              item.createdAt.toDate().toLocaleString() : 
-              'Unknown date'
-            }
-          </Text>
         </View>
       </View>
     );
@@ -1149,7 +1152,7 @@ const getStyles = (theme) => StyleSheet.create({
   },
   usernameSeparator: {
     fontSize: 14,
-    color: '#666'
+    color: theme.textSecondary
   },
   imageGalleryContainer: {
     width: '100%',
@@ -1194,6 +1197,10 @@ const getStyles = (theme) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  rightActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   biteButton: {
     padding: 4,
   },
@@ -1208,19 +1215,20 @@ const getStyles = (theme) => StyleSheet.create({
   biteCountText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#000',
+    color: theme.text,
   },
   postFooter: {
     padding: 12
   },
   caption: {
     fontSize: 14,
-    marginBottom: 5
+    marginBottom: 5,
+    color: theme.text
   },
   postDate: {
     fontSize: 12,
-    color: '#666',
-    marginTop: 8
+    color: theme.textSecondary,
+    marginTop: -20
   },
   optionsButton: {
     padding: 8
@@ -1231,7 +1239,7 @@ const getStyles = (theme) => StyleSheet.create({
     justifyContent: 'flex-end'
   },
   optionsModalContent: {
-    backgroundColor: '#fff',
+    backgroundColor: theme.surface,
     borderTopLeftRadius: 15,
     borderTopRightRadius: 15,
     paddingVertical: 20
@@ -1240,11 +1248,11 @@ const getStyles = (theme) => StyleSheet.create({
     paddingVertical: 15,
     paddingHorizontal: 20,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee'
+    borderBottomColor: theme.border
   },
   optionText: {
     fontSize: 16,
-    color: '#000'
+    color: theme.text
   },
   deleteOption: {
     borderBottomWidth: 0

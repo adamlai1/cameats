@@ -524,8 +524,8 @@ export default function PostDetails() {
 
         <Modal
           visible={showLocationPicker}
-          animationType="slide"
-          presentationStyle="pageSheet"
+          animationType="fade"
+          transparent={true}
         >
           <SafeAreaView style={styles.modalContainer}>
             <View style={styles.modalHeader}>

@@ -832,7 +832,7 @@ const getStyles = (theme) => StyleSheet.create({
     justifyContent: 'flex-end'
   },
   optionsModalContent: {
-    backgroundColor: '#fff',
+    backgroundColor: theme.surface,
     borderTopLeftRadius: 15,
     borderTopRightRadius: 15,
     paddingVertical: 20
@@ -841,11 +841,11 @@ const getStyles = (theme) => StyleSheet.create({
     paddingVertical: 15,
     paddingHorizontal: 20,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee'
+    borderBottomColor: theme.border
   },
   optionText: {
     fontSize: 16,
-    color: '#000'
+    color: theme.text
   },
   deleteOption: {
     borderBottomWidth: 0

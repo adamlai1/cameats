@@ -26,7 +26,7 @@ export const AddFriendModal = ({
   
   return (
     <Modal
-      animationType="slide"
+      animationType="fade"
       transparent={true}
       visible={visible}
       onRequestClose={onClose}
@@ -103,7 +103,7 @@ export const FriendRequestsModal = ({
   
   return (
     <Modal
-      animationType="slide"
+      animationType="fade"
       transparent={true}
       visible={visible}
       onRequestClose={onClose}

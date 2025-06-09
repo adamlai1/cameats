@@ -15,91 +15,96 @@ export const ProfileHeader = ({
   onFriendRequestsPress,
   onSettingsPress,
   onFriendsPress,
-  friendRequestsCount = 0
-}) => (
-  <View style={styles.header}>
-    <View style={styles.headerTop}>
-      <Text style={styles.username}>{username}</Text>
-      <View style={styles.headerButtons}>
-        <TouchableOpacity 
-          style={styles.addFriendButton}
-          onPress={onAddFriendPress}
-        >
-          <Ionicons name="person-add-outline" size={24} color="#0095f6" />
-        </TouchableOpacity>
-        {friendRequestsCount > 0 && (
+  friendRequestsCount = 0,
+  theme
+}) => {
+  const styles = getStyles(theme);
+  
+  return (
+    <View style={styles.header}>
+      <View style={styles.headerTop}>
+        <Text style={styles.username}>{username}</Text>
+        <View style={styles.headerButtons}>
           <TouchableOpacity 
-            style={styles.requestButton}
-            onPress={onFriendRequestsPress}
+            style={styles.addFriendButton}
+            onPress={onAddFriendPress}
           >
-            <Ionicons name="person-add" size={24} color="#0095f6" />
-            <View style={styles.requestBadge}>
-              <Text style={styles.requestCount}>{friendRequestsCount}</Text>
-            </View>
+            <Ionicons name="person-add-outline" size={24} color="#0095f6" />
           </TouchableOpacity>
+          {friendRequestsCount > 0 && (
+            <TouchableOpacity 
+              style={styles.requestButton}
+              onPress={onFriendRequestsPress}
+            >
+              <Ionicons name="person-add" size={24} color="#0095f6" />
+              <View style={styles.requestBadge}>
+                <Text style={styles.requestCount}>{friendRequestsCount}</Text>
+              </View>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity 
+            style={styles.settingsButton}
+            onPress={onSettingsPress}
+          >
+            <Ionicons name="settings-outline" size={24} color={theme.text} />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <View style={styles.profileInfo}>
+        <TouchableOpacity 
+          style={styles.profilePicContainer}
+          onPress={onProfilePicPress}
+        >
+          <View style={styles.profilePic}>
+            {profilePicUrl ? (
+              <Image 
+                source={{ uri: profilePicUrl }} 
+                style={styles.profilePicImage} 
+              />
+            ) : (
+              <Ionicons name="person" size={40} color={theme.textSecondary} />
+            )}
+            {uploadingPic && (
+              <View style={styles.uploadingOverlay}>
+                <ActivityIndicator color="#fff" />
+              </View>
+            )}
+          </View>
+          <View style={styles.editIconContainer}>
+            <Ionicons name="camera" size={14} color="#fff" />
+          </View>
+        </TouchableOpacity>
+
+        <View style={styles.statsContainer}>
+          <View style={styles.statItem}>
+            <Text style={styles.statNumber}>{postsCount}</Text>
+            <Text style={styles.statLabel}>Meals</Text>
+          </View>
+
+          <TouchableOpacity 
+            style={styles.statItem}
+            onPress={onFriendsPress}
+          >
+            <Text style={styles.statNumber}>{friendsCount}</Text>
+            <Text style={styles.statLabel}>Friends</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <View style={styles.bioContainer}>
+        {displayName && <Text style={styles.displayName}>{displayName}</Text>}
+        {bio ? (
+          <Text style={styles.bio}>{bio}</Text>
+        ) : (
+          <Text style={styles.noBio}>No bio yet</Text>
         )}
-        <TouchableOpacity 
-          style={styles.settingsButton}
-          onPress={onSettingsPress}
-        >
-          <Ionicons name="settings-outline" size={24} color="black" />
-        </TouchableOpacity>
       </View>
     </View>
+  );
+};
 
-    <View style={styles.profileInfo}>
-      <TouchableOpacity 
-        style={styles.profilePicContainer}
-        onPress={onProfilePicPress}
-      >
-        <View style={styles.profilePic}>
-          {profilePicUrl ? (
-            <Image 
-              source={{ uri: profilePicUrl }} 
-              style={styles.profilePicImage} 
-            />
-          ) : (
-            <Ionicons name="person" size={40} color="#666" />
-          )}
-          {uploadingPic && (
-            <View style={styles.uploadingOverlay}>
-              <ActivityIndicator color="#fff" />
-            </View>
-          )}
-        </View>
-        <View style={styles.editIconContainer}>
-          <Ionicons name="camera" size={14} color="#fff" />
-        </View>
-      </TouchableOpacity>
-
-      <View style={styles.statsContainer}>
-        <View style={styles.statItem}>
-          <Text style={styles.statNumber}>{postsCount}</Text>
-          <Text style={styles.statLabel}>Meals</Text>
-        </View>
-
-        <TouchableOpacity 
-          style={styles.statItem}
-          onPress={onFriendsPress}
-        >
-          <Text style={styles.statNumber}>{friendsCount}</Text>
-          <Text style={styles.statLabel}>Friends</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-
-    <View style={styles.bioContainer}>
-      {displayName && <Text style={styles.displayName}>{displayName}</Text>}
-      {bio ? (
-        <Text style={styles.bio}>{bio}</Text>
-      ) : (
-        <Text style={styles.noBio}>No bio yet</Text>
-      )}
-    </View>
-  </View>
-);
-
-const styles = StyleSheet.create({
+const getStyles = (theme) => StyleSheet.create({
   header: {
     padding: 15
   },
@@ -111,7 +116,8 @@ const styles = StyleSheet.create({
   },
   username: {
     fontSize: 20,
-    fontWeight: 'bold'
+    fontWeight: 'bold',
+    color: theme.text
   },
   headerButtons: {
     flexDirection: 'row',
@@ -153,7 +159,7 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: '#f0f0f0',
+    backgroundColor: theme.surfaceSecondary,
     justifyContent: 'center',
     alignItems: 'center',
     overflow: 'hidden'
@@ -190,10 +196,11 @@ const styles = StyleSheet.create({
   },
   statNumber: {
     fontSize: 18,
-    fontWeight: 'bold'
+    fontWeight: 'bold',
+    color: theme.text
   },
   statLabel: {
-    color: '#666'
+    color: theme.textSecondary
   },
   bioContainer: {
     marginTop: 10
@@ -201,16 +208,17 @@ const styles = StyleSheet.create({
   displayName: {
     fontWeight: 'bold',
     fontSize: 16,
-    marginBottom: 4
+    marginBottom: 4,
+    color: theme.text
   },
   bio: {
     fontSize: 14,
-    color: '#262626',
+    color: theme.text,
     lineHeight: 20
   },
   noBio: {
     fontSize: 14,
-    color: '#666',
+    color: theme.textSecondary,
     fontStyle: 'italic'
   }
 }); 

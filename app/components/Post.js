@@ -142,9 +142,15 @@ export const DetailPost = memo(({
         </View>
       </TapGestureHandler>
 
+      {/* Combined action bar with bread button (left) and date (right) */}
       <View style={styles.actionBar}>
         <View style={styles.leftActions}>
           <BreadButton postId={post.id} hasUserBited={hasUserBited} onPress={onBitePress} />
+        </View>
+        <View style={styles.rightActions}>
+          <Text style={styles.postDate}>
+            {post.createdAt?.toDate().toLocaleString() || ''}
+          </Text>
         </View>
       </View>
 
@@ -156,9 +162,6 @@ export const DetailPost = memo(({
 
       <View style={styles.postFooter}>
         <Text style={styles.caption}>{post.caption}</Text>
-        <Text style={styles.postDate}>
-          {post.createdAt?.toDate().toLocaleString() || ''}
-        </Text>
       </View>
     </View>
   );
@@ -243,6 +246,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center'
   },
+  rightActions: {
+    flexDirection: 'row',
+    alignItems: 'center'
+  },
   biteButton: {
     padding: 4
   },
@@ -267,7 +274,8 @@ const styles = StyleSheet.create({
   },
   postDate: {
     fontSize: 12,
-    color: '#666'
+    color: '#666',
+    marginTop: -20
   },
   gridItem: {
     width: WINDOW_WIDTH / 3 - 2,
