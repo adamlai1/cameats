@@ -2,7 +2,7 @@
 
 import { Stack } from 'expo-router';
 import { useEffect } from 'react';
-import { Image } from 'react-native';
+import { Image, LogBox } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AuthProvider } from '../app/contexts/AuthContext';
 
@@ -12,6 +12,15 @@ const breadBitten = require('../assets/images/bread-bitten.png');
 
 function RootLayoutNav() {
   useEffect(() => {
+    // Globally suppress VirtualizedLists warnings
+    LogBox.ignoreLogs([
+      'VirtualizedLists should never be nested inside plain ScrollViews',
+      'VirtualizedLists should never be nested',
+      'VirtualizedList',
+      'ScrollView',
+      'windowing and other functionality'
+    ]);
+
     // Load bread images in the background
     Image.prefetch(Image.resolveAssetSource(breadNormal).uri).catch(err => 
       console.warn('Failed to preload normal bread:', err)

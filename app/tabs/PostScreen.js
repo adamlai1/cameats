@@ -2,40 +2,110 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { useRouter } from 'expo-router';
-import { forwardRef, useEffect, useImperativeHandle, useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useState } from 'react';
 import {
     Alert,
     Dimensions,
-    FlatList,
     Image,
+    LogBox,
     SafeAreaView,
     StyleSheet,
     Text,
     TouchableOpacity,
     View
 } from 'react-native';
+import DraggableFlatList from 'react-native-draggable-flatlist';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
-const IMAGE_SIZE = SCREEN_WIDTH / 3;
+const IMAGE_SIZE = (SCREEN_WIDTH * 2) / 3; // 1.5 images fit on screen
 
 const PostScreen = forwardRef((props, ref) => {
   const router = useRouter();
   const [selectedImages, setSelectedImages] = useState([]);
+  const [hasNavigated, setHasNavigated] = useState(false);
 
   // Expose takePhoto function to parent component
   useImperativeHandle(ref, () => ({
-    takePhoto: takePhoto
+    takePhoto: takePhoto,
+    clearImages: () => {
+      setSelectedImages([]);
+      setHasNavigated(false);
+    }
   }), []);
 
   useEffect(() => {
+    // Suppress VirtualizedLists warning using LogBox
+    LogBox.ignoreLogs([
+      'VirtualizedLists should never be nested inside plain ScrollViews',
+      'VirtualizedLists should never be nested',
+      'VirtualizedList',
+      'ScrollView'
+    ]);
+
+    // Suppress VirtualizedLists warning for DraggableFlatList
+    const originalWarn = console.warn;
+    const originalError = console.error;
+    
+    console.warn = (...args) => {
+      const message = args[0];
+      if (
+        message?.includes && (
+          message.includes('VirtualizedLists should never be nested') ||
+          message.includes('VirtualizedList') ||
+          message.includes('ScrollView') ||
+          message.includes('windowing and other functionality')
+        )
+      ) {
+        return; // Suppress the warning
+      }
+      originalWarn(...args);
+    };
+
+    console.error = (...args) => {
+      const message = args[0];
+      if (
+        message?.includes && (
+          message.includes('VirtualizedLists should never be nested') ||
+          message.includes('VirtualizedList') ||
+          message.includes('ScrollView') ||
+          message.includes('windowing and other functionality')
+        )
+      ) {
+        return; // Suppress the error
+      }
+      originalError(...args);
+    };
+
     (async () => {
       const cameraStatus = await ImagePicker.requestCameraPermissionsAsync();
       const mediaStatus = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (cameraStatus.status !== 'granted') Alert.alert('Camera permission is required.');
       if (mediaStatus.status !== 'granted') Alert.alert('Media library permission is required.');
     })();
+
+    return () => {
+      console.warn = originalWarn;
+      console.error = originalError;
+    };
   }, []);
+
+  // Track focus/unfocus to detect navigation attempts
+  useFocusEffect(
+    useCallback(() => {
+      // Reset navigation flag when screen comes into focus
+      setHasNavigated(false);
+      
+      return () => {
+        // Screen is losing focus
+        if (selectedImages.length > 0 && !hasNavigated) {
+          // User is trying to leave with unsaved images
+          // Note: We can't prevent navigation here, but we could show a toast
+          console.log('User left post screen with unsaved images');
+        }
+      };
+    }, [selectedImages.length, hasNavigated])
+  );
 
   const pickImages = async () => {
     let result = await ImagePicker.launchImageLibraryAsync({ 
@@ -61,77 +131,138 @@ const PostScreen = forwardRef((props, ref) => {
     
     if (!result.canceled) {
       setSelectedImages(prev => [...prev, result.assets[0].uri].slice(0, 10));
-      }
+    }
   };
 
-  const removeImage = (index) => {
-    setSelectedImages(prev => prev.filter((_, i) => i !== index));
+  const removeImage = (uri) => {
+    setSelectedImages(prev => prev.filter(imageUri => imageUri !== uri));
   };
         
   const handleNext = () => {
     if (selectedImages.length === 0) {
       Alert.alert('Error', 'Please select at least one image');
-          return;
-        }
+      return;
+    }
+    
+    // Mark that user intentionally navigated
+    setHasNavigated(true);
         
     router.push({
       pathname: '/PostDetails',
       params: { imageUris: JSON.stringify(selectedImages) }
     });
+    
+    // Don't clear images immediately - preserve content for when user comes back
   };
 
-  const renderSelectedImage = ({ item, index }) => (
-    <View style={styles.imageContainer}>
-      <Image source={{ uri: item }} style={styles.selectedImage} />
-      <TouchableOpacity 
-        style={styles.removeButton}
-        onPress={() => removeImage(index)}
-      >
-        <Ionicons name="close-circle" size={24} color="#ff3b30" />
-      </TouchableOpacity>
-    </View>
-  );
+  const renderSelectedImage = ({ item, index, drag, isActive }) => {
+    const isFirst = index === 0;
+    const isLast = index === selectedImages.length - 1;
+    
+    return (
+      <View style={[
+        styles.imageContainer, 
+        isActive && styles.draggingImage,
+        isFirst && styles.firstImage,
+        isLast && styles.lastImage
+      ]}>
+        <TouchableOpacity
+          style={styles.imageWrapper}
+          onLongPress={drag}
+          disabled={isActive}
+          activeOpacity={1}
+        >
+          <Image source={{ uri: item.uri }} style={styles.selectedImage} />
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={styles.removeButton}
+          onPress={() => removeImage(item.uri)}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="close-circle" size={24} color="#ff3b30" />
+        </TouchableOpacity>
+      </View>
+    );
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
-    <View style={styles.container}>
-      <Text style={styles.title}>Create a Post</Text>
+      <View style={styles.header}>
+        <Text style={styles.title}>Create a Post</Text>
+        <View style={styles.headerRight}>
+          {selectedImages.length > 0 && (
+            <>
+              <TouchableOpacity 
+                onPress={() => setSelectedImages([])}
+                style={styles.clearButton}
+              >
+                <Text style={styles.clearButtonText}>Clear</Text>
+              </TouchableOpacity>
+              <Text style={styles.imageCount}>{selectedImages.length}/10</Text>
+            </>
+          )}
+        </View>
+      </View>
               
-        {selectedImages.length > 0 && (
+      <View style={styles.contentContainer}>
+        {selectedImages.length > 0 ? (
           <View style={styles.selectedImagesContainer}>
-            <FlatList
-              data={selectedImages}
+            <DraggableFlatList
+              data={selectedImages.map((uri) => ({ uri, key: uri }))}
               renderItem={renderSelectedImage}
-              keyExtractor={(_, index) => index.toString()}
+              keyExtractor={(item) => item.key}
+              onDragEnd={({ data }) => {
+                setSelectedImages(data.map(item => item.uri));
+              }}
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.imageList}
+              scrollEnabled={true}
+              nestedScrollEnabled={true}
+              activationDistance={0}
+              onActivateTimeoutMS={100}
+              removeClippedSubviews={false}
+              animationConfig={{
+                damping: 100,
+                mass: 0.1,
+                stiffness: 500,
+                restDisplacementThreshold: 0.001,
+                restSpeedThreshold: 0.001,
+              }}
+              extraData={selectedImages.length}
             />
-                  </View>
-                )}
-
-        <View style={styles.buttonContainer}>
-          <TouchableOpacity style={styles.button} onPress={takePhoto}>
-            <Ionicons name="camera" size={32} color="#fff" />
-            <Text style={styles.buttonText}>Take Photo</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.button} onPress={pickImages}>
-            <Ionicons name="images" size={32} color="#fff" />
-            <Text style={styles.buttonText}>Choose from Gallery</Text>
-          </TouchableOpacity>
-
-          {selectedImages.length > 0 && (
-                      <TouchableOpacity
-              style={[styles.button, styles.nextButton]} 
-              onPress={handleNext}
-                      >
-              <Text style={styles.buttonText}>Next</Text>
-              <Ionicons name="arrow-forward" size={24} color="#fff" />
-                      </TouchableOpacity>
-                    )}
-            </View>
           </View>
+        ) : (
+          <View style={styles.emptyState}>
+            <Ionicons name="images-outline" size={80} color="#ccc" />
+            <Text style={styles.emptyText}>Select photos to create your post</Text>
+          </View>
+        )}
+      </View>
+
+      <View style={styles.bottomActions}>
+        <View style={styles.actionButtonsRow}>
+          <TouchableOpacity style={styles.actionButton} onPress={takePhoto}>
+            <Ionicons name="camera" size={28} color="#007AFF" />
+            <Text style={styles.actionButtonText}>Camera</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.actionButton} onPress={pickImages}>
+            <Ionicons name="images" size={28} color="#007AFF" />
+            <Text style={styles.actionButtonText}>Gallery</Text>
+          </TouchableOpacity>
+        </View>
+
+        {selectedImages.length > 0 && (
+          <TouchableOpacity
+            style={styles.nextButton} 
+            onPress={handleNext}
+          >
+            <Text style={styles.nextButtonText}>Continue</Text>
+            <Ionicons name="arrow-forward" size={20} color="#fff" />
+          </TouchableOpacity>
+        )}
+      </View>
     </SafeAreaView>
   );
 });
@@ -141,62 +272,138 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#fff'
   },
-  container: {
-    flex: 1,
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    justifyContent: 'center',
-    padding: 20
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0'
   },
   title: {
     fontSize: 24,
     fontWeight: 'bold',
-    marginBottom: 20,
     color: '#333'
   },
+  imageCount: {
+    fontSize: 16,
+    color: '#666',
+    fontWeight: '500'
+  },
+  contentContainer: {
+    flex: 1,
+    justifyContent: 'center'
+  },
   selectedImagesContainer: {
-    width: '100%',
-    marginBottom: 20
+    flex: 1,
+    justifyContent: 'center'
+  },
+  emptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 40
+  },
+  emptyText: {
+    fontSize: 18,
+    color: '#999',
+    textAlign: 'center',
+    marginTop: 16
   },
   imageList: {
-    gap: 10,
-    paddingHorizontal: 10
+    alignItems: 'center'
   },
   imageContainer: {
+    position: 'relative',
+    marginRight: 8,
+    paddingTop: 12,
+    paddingRight: 12
+  },
+  firstImage: {
+    marginLeft: 0
+  },
+  lastImage: {
+    marginRight: 0
+  },
+  imageWrapper: {
     position: 'relative'
   },
   selectedImage: {
     width: IMAGE_SIZE,
     height: IMAGE_SIZE,
-    borderRadius: 8
+    borderRadius: 12
   },
   removeButton: {
     position: 'absolute',
-    top: -8,
-    right: -8,
+    top: -2,
+    right: -2,
     backgroundColor: '#fff',
-    borderRadius: 12
+    borderRadius: 12,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.3,
+    shadowRadius: 2
   },
-  buttonContainer: {
-    width: '100%',
-    gap: 20,
-    alignItems: 'center'
+  draggingImage: {
+    opacity: 0.9,
+    zIndex: 1000,
+    elevation: 5
   },
-  button: {
-    backgroundColor: '#007AFF',
-    padding: 20,
-    borderRadius: 15,
-    width: '80%',
-    alignItems: 'center',
+  bottomActions: {
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+    paddingTop: 10
+  },
+  actionButtonsRow: {
     flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 10
+    justifyContent: 'space-around',
+    marginBottom: 16
+  },
+  actionButton: {
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 12,
+    minWidth: 100,
+    borderWidth: 1,
+    borderColor: '#e9ecef'
+  },
+  actionButtonText: {
+    color: '#007AFF',
+    fontSize: 14,
+    fontWeight: '600',
+    marginTop: 4
   },
   nextButton: {
-    backgroundColor: '#34C759'
+    backgroundColor: '#007AFF',
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8
   },
-  buttonText: {
+  nextButtonText: {
     color: '#fff',
     fontSize: 18,
+    fontWeight: '600'
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8
+  },
+  clearButton: {
+    padding: 8,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8
+  },
+  clearButtonText: {
+    color: '#007AFF',
+    fontSize: 14,
     fontWeight: '600'
   }
 });

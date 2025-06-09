@@ -26,6 +26,7 @@ import {
 } from 'react-native';
 import * as Progress from 'react-native-progress';
 import { auth, db, storage } from '../../firebase';
+import LocationPicker from './LocationPicker';
 
 const WINDOW_WIDTH = Dimensions.get('window').width;
 
@@ -50,6 +51,8 @@ export default function PostManagement({
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [showManagePhotos, setShowManagePhotos] = useState(false);
+  const [showEditLocation, setShowEditLocation] = useState(false);
+  const [selectedLocation, setSelectedLocation] = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -87,6 +90,76 @@ export default function PostManagement({
   const handleManagePhotos = () => {
     setShowPostOptions(false);
     setShowManagePhotos(true);
+  };
+
+  const handleEditLocation = () => {
+    setShowPostOptions(false);
+    setSelectedLocation(selectedPost?.location || null);
+    setShowEditLocation(true);
+  };
+
+  const handleSaveLocation = async (newLocation) => {
+    if (!selectedPost) return;
+    
+    try {
+      const postRef = doc(db, 'posts', selectedPost.id);
+      
+      // Update Firestore
+      await updateDoc(postRef, {
+        location: newLocation
+      });
+      
+      onUpdatePost({
+        ...selectedPost,
+        location: newLocation
+      });
+      
+      setShowEditLocation(false);
+      Alert.alert('Success', 'Location updated successfully!');
+    } catch (error) {
+      console.error('Error updating location:', error);
+      Alert.alert('Error', 'Failed to update location');
+    }
+  };
+
+  const handleRemoveLocation = async () => {
+    if (!selectedPost) return;
+    
+    Alert.alert(
+      'Remove Location',
+      'Are you sure you want to remove the location from this post?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel'
+        },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const postRef = doc(db, 'posts', selectedPost.id);
+              
+              // Remove location from Firestore
+              await updateDoc(postRef, {
+                location: null
+              });
+              
+              onUpdatePost({
+                ...selectedPost,
+                location: null
+              });
+              
+              setShowEditLocation(false);
+              Alert.alert('Success', 'Location removed successfully!');
+            } catch (error) {
+              console.error('Error removing location:', error);
+              Alert.alert('Error', 'Failed to remove location');
+            }
+          }
+        }
+      ]
+    );
   };
 
   const fetchFriendsList = async () => {
@@ -367,6 +440,13 @@ export default function PostManagement({
             }}
           >
             <Text style={styles.optionText}>Add Co-owners</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.optionItem}
+            onPress={handleEditLocation}
+          >
+            <Text style={styles.optionText}>Change Location</Text>
           </TouchableOpacity>
           
           {selectedPost?.userId === auth.currentUser.uid && (
@@ -673,6 +753,61 @@ export default function PostManagement({
     </Modal>
   );
 
+  const renderEditLocationModal = () => (
+    <Modal
+      animationType="fade"
+      transparent={true}
+      visible={showEditLocation}
+      onRequestClose={() => setShowEditLocation(false)}
+    >
+      <View style={styles.modalContainer}>
+        <View style={[styles.modalContent, { maxHeight: '85%' }]}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Change Location</Text>
+            <TouchableOpacity onPress={() => setShowEditLocation(false)}>
+              <Ionicons name="close" size={24} color="black" />
+            </TouchableOpacity>
+          </View>
+
+          {selectedPost?.location && (
+            <View style={styles.currentLocationContainer}>
+              <Text style={styles.currentLocationLabel}>Current Location:</Text>
+              <View style={styles.currentLocationInfo}>
+                <Ionicons name="location" size={16} color="#666" />
+                <Text style={styles.currentLocationText}>{selectedPost.location.name}</Text>
+              </View>
+              <TouchableOpacity 
+                style={styles.removeLocationButton}
+                onPress={handleRemoveLocation}
+              >
+                <Ionicons name="trash-outline" size={16} color="#ff3b30" />
+                <Text style={styles.removeLocationText}>Remove Location</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          <View style={styles.locationPickerContainer}>
+            <LocationPicker
+              onLocationSelect={setSelectedLocation}
+              initialLocation={selectedPost?.location}
+            />
+          </View>
+
+          {selectedLocation && (
+            <TouchableOpacity
+              style={styles.saveButton}
+              onPress={() => handleSaveLocation(selectedLocation)}
+            >
+              <Text style={styles.saveButtonText}>
+                {selectedPost?.location ? 'Update Location' : 'Add Location'}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+
   return (
     <>
       {renderPostOptionsModal()}
@@ -680,6 +815,7 @@ export default function PostManagement({
       {renderAddCoOwnersModal()}
       {renderAddPhotosModal()}
       {renderManagePhotosModal()}
+      {renderEditLocationModal()}
     </>
   );
 }
@@ -916,5 +1052,42 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center'
+  },
+  currentLocationContainer: {
+    marginBottom: 20
+  },
+  currentLocationLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 10
+  },
+  currentLocationInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 10,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 8
+  },
+  currentLocationText: {
+    fontSize: 14,
+    marginLeft: 10
+  },
+  removeLocationButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 10,
+    backgroundColor: '#ff3b30',
+    borderRadius: 8,
+    marginTop: 10,
+    gap: 5
+  },
+  removeLocationText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600'
+  },
+  locationPickerContainer: {
+    marginBottom: 20
   }
 });

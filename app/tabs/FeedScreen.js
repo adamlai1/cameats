@@ -10,6 +10,7 @@ import {
     Image,
     RefreshControl,
     SafeAreaView,
+    ScrollView,
     StyleSheet,
     Text,
     TouchableOpacity,
@@ -20,6 +21,7 @@ import { auth } from '../../firebase';
 import PostManagement from '../components/PostManagement';
 import { PostSkeleton } from '../components/ui/SkeletonLoader';
 import * as postService from '../services/postService';
+import { handleDeletePost as deletePostUtil } from '../utils/postOptionsUtils';
 
 const POSTS_PER_PAGE = 5;
 const WINDOW_WIDTH = Dimensions.get('window').width;
@@ -221,8 +223,6 @@ const FeedScreen = forwardRef((props, ref) => {
   };
 
   const handleDeletePost = async (post) => {
-    const { handleDeletePost: deletePostUtil } = await import('../utils/postOptionsUtils');
-    
     await deletePostUtil(post, (postId) => {
       setPosts(currentPosts => currentPosts.filter(p => p.id !== postId));
     });
@@ -240,17 +240,31 @@ const FeedScreen = forwardRef((props, ref) => {
     return (
       <View style={styles.postContainer}>
         <View style={styles.postHeader}>
-          <View style={styles.usernameContainer}>
-            {(item.postOwners || [{ id: item.userId, username: item.username || 'Unknown' }]).map((owner, index) => (
-              <View key={`${item.id}-owner-${owner.id}-${index}`} style={styles.usernameWrapper}>
-                <TouchableOpacity onPress={() => handleUsernamePress(owner.id)}>
-                  <Text style={styles.username}>{owner.username}</Text>
-                </TouchableOpacity>
-                {index < (item.postOwners?.length || 1) - 1 && (
-                  <Text style={styles.usernameSeparator}> • </Text>
-                )}
+          <View style={styles.headerContent}>
+            <ScrollView 
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.usernameScrollContainer}
+            >
+              <View style={styles.usernameContainer}>
+                {(item.postOwners || [{ id: item.userId, username: item.username || 'Unknown' }]).map((owner, index) => (
+                  <View key={`${item.id}-owner-${owner.id}-${index}`} style={styles.usernameWrapper}>
+                    <TouchableOpacity onPress={() => handleUsernamePress(owner.id)}>
+                      <Text style={styles.username}>{owner.username}</Text>
+                    </TouchableOpacity>
+                    {index < (item.postOwners?.length || 1) - 1 && (
+                      <Text style={styles.usernameSeparator}> • </Text>
+                    )}
+                  </View>
+                ))}
               </View>
-            ))}
+            </ScrollView>
+            {item.location && (
+              <View style={styles.locationContainer}>
+                <Ionicons name="location-outline" size={12} color="#666" />
+                <Text style={styles.locationText}>{item.location.name}</Text>
+              </View>
+            )}
           </View>
           {(item.userId === auth.currentUser.uid || item.postOwners?.some(owner => owner.id === auth.currentUser.uid)) && (
             <TouchableOpacity 
@@ -549,11 +563,16 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#eee'
   },
+  headerContent: {
+    flexDirection: 'column',
+    flex: 1
+  },
+  usernameScrollContainer: {
+    marginBottom: 4
+  },
   usernameContainer: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    flex: 1
+    alignItems: 'center'
   },
   usernameWrapper: {
     flexDirection: 'row',
@@ -707,6 +726,16 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 16,
     color: '#666'
+  },
+  locationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 2
+  },
+  locationText: {
+    fontSize: 12,
+    color: '#666',
+    marginLeft: 4
   }
 });
 

@@ -1,7 +1,7 @@
 // app/(tabs)/_layout.js
 
 import { Ionicons } from '@expo/vector-icons';
-import { usePathname } from 'expo-router';
+import { useLocalSearchParams, usePathname } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { Dimensions, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { PanGestureHandler, State } from 'react-native-gesture-handler';
@@ -21,6 +21,7 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 export default function TabsLayout() {
   const pathname = usePathname();
+  const localSearchParams = useLocalSearchParams();
   const [currentTabIndex, setCurrentTabIndex] = useState(0);
   const translateX = useSharedValue(0);
   const feedScreenRef = useRef(null);
@@ -41,6 +42,13 @@ export default function TabsLayout() {
       translateX.value = -index * SCREEN_WIDTH;
     }
   }, []); // Empty dependency array - only run on mount
+
+  // Clear PostScreen images when coming back from successful post
+  useEffect(() => {
+    if (localSearchParams.clearPostImages === 'true' && postScreenRef.current) {
+      postScreenRef.current.clearImages();
+    }
+  }, [localSearchParams.clearPostImages]);
 
   const updateTabIndex = (index) => {
     setCurrentTabIndex(index);

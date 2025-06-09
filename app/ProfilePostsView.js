@@ -22,6 +22,7 @@ import {
 import { State, TapGestureHandler } from 'react-native-gesture-handler';
 import * as Progress from 'react-native-progress';
 import { auth, db, storage } from '../firebase';
+import { handleDeletePost as deletePostUtil } from './utils/postOptionsUtils';
 
 // Import bread slice images and preload them
 const breadNormal = require('../assets/images/bread-normal.png');
@@ -380,8 +381,6 @@ export default function ProfilePostsView() {
   };
 
   const handleDeletePost = async (post) => {
-    const { handleDeletePost: deletePostUtil } = await import('./utils/postOptionsUtils');
-    
     await deletePostUtil(post, (postId) => {
       setPosts(currentPosts => currentPosts.filter(p => p.id !== postId));
       router.back(); // Go back after deleting
@@ -577,17 +576,31 @@ export default function ProfilePostsView() {
     return (
       <View style={styles.postContainer}>
         <View style={styles.postHeader}>
-          <View style={styles.usernameContainer}>
-            {item.owners?.map((owner, index) => (
-              <View key={owner.id} style={styles.usernameWrapper}>
-                <TouchableOpacity onPress={() => handleUsernamePress(owner.id)}>
-                  <Text style={styles.username}>{owner.username}</Text>
-                </TouchableOpacity>
-                {index < item.owners.length - 1 && (
-                  <Text style={styles.usernameSeparator}> • </Text>
-                )}
+          <View style={styles.headerContent}>
+            <ScrollView 
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.usernameScrollContainer}
+            >
+              <View style={styles.usernameContainer}>
+                {item.owners?.map((owner, index) => (
+                  <View key={owner.id} style={styles.usernameWrapper}>
+                    <TouchableOpacity onPress={() => handleUsernamePress(owner.id)}>
+                      <Text style={styles.username}>{owner.username}</Text>
+                    </TouchableOpacity>
+                    {index < item.owners.length - 1 && (
+                      <Text style={styles.usernameSeparator}> • </Text>
+                    )}
+                  </View>
+                ))}
               </View>
-            ))}
+            </ScrollView>
+            {item.location && (
+              <View style={styles.locationContainer}>
+                <Ionicons name="location-outline" size={12} color="#666" />
+                <Text style={styles.locationText}>{item.location.name}</Text>
+              </View>
+            )}
           </View>
           {(item.userId === auth.currentUser.uid || item.postOwners?.includes(auth.currentUser.uid)) && (
             <TouchableOpacity 
@@ -1109,11 +1122,16 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#eee'
   },
+  headerContent: {
+    flexDirection: 'column',
+    flex: 1
+  },
+  usernameScrollContainer: {
+    marginBottom: 4
+  },
   usernameContainer: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    flex: 1
+    alignItems: 'center'
   },
   usernameWrapper: {
     flexDirection: 'row',
@@ -1443,5 +1461,15 @@ const styles = StyleSheet.create({
   emptyPhotosContainer: {
     padding: 20,
     alignItems: 'center'
+  },
+  locationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 2
+  },
+  locationText: {
+    fontSize: 12,
+    color: '#666',
+    marginLeft: 4
   }
 }); 

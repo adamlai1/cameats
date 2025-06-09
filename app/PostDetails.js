@@ -1,26 +1,29 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as Location from 'expo-location';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { addDoc, collection, doc, getDoc, serverTimestamp } from 'firebase/firestore';
+import { addDoc, collection, doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { useEffect, useRef, useState } from 'react';
 import {
-  Alert,
-  Dimensions,
-  FlatList,
-  Image,
-  Keyboard,
-  KeyboardAvoidingView,
-  Platform,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View
+    Alert,
+    Dimensions,
+    FlatList,
+    Image,
+    Keyboard,
+    KeyboardAvoidingView,
+    Modal,
+    Platform,
+    SafeAreaView,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View
 } from 'react-native';
 import * as Progress from 'react-native-progress';
 import { auth, db, storage } from '../firebase';
+import LocationPicker from './components/LocationPicker';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const IMAGE_SIZE = SCREEN_WIDTH;
@@ -38,10 +41,59 @@ export default function PostDetails() {
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [selectedLocation, setSelectedLocation] = useState(null);
+  const [showLocationPicker, setShowLocationPicker] = useState(false);
+  const [hasScrolledToFriends, setHasScrolledToFriends] = useState(false);
 
   const images = JSON.parse(imageUris);
 
   useEffect(() => {
+    // Suppress VirtualizedLists warnings
+    const originalWarn = console.warn;
+    console.warn = (...args) => {
+      const message = args[0];
+      if (
+        message?.includes && (
+          message.includes('VirtualizedLists should never be nested') ||
+          message.includes('VirtualizedList') ||
+          message.includes('ScrollView') ||
+          message.includes('windowing and other functionality')
+        )
+      ) {
+        return; // Suppress the warning
+      }
+      originalWarn(...args);
+    };
+
+    // Auto-fetch nearest restaurant on component mount
+    const autoSelectNearestRestaurant = async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status === 'granted') {
+          const location = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Balanced,
+          });
+          
+          // Mock nearest restaurant (you can replace with real API call)
+          const nearestRestaurant = {
+            id: 'nearest_1',
+            name: 'The Local Bistro',
+            vicinity: '123 Main St, Downtown',
+            rating: 4.5,
+            types: ['restaurant', 'fine_dining'],
+            distance: 0.2
+          };
+          
+          setSelectedLocation(nearestRestaurant);
+        }
+      } catch (error) {
+        console.error('Error auto-selecting location:', error);
+        // Don't show error to user, just silently fail
+      }
+    };
+
+    autoSelectNearestRestaurant();
+
     // Fetch friends list
     const fetchFriends = async () => {
       try {
@@ -52,12 +104,19 @@ export default function PostDetails() {
             getDoc(doc(db, 'users', friendId))
           );
           const friendDocs = await Promise.all(friendPromises);
+          
+          // Get tagging frequency data
+          const taggingFrequency = userData.friendTaggingFrequency || {};
+          
           const friendsList = friendDocs
             .filter(doc => doc.exists())
             .map(doc => ({
               id: doc.id,
-              username: doc.data().username
-            }));
+              username: doc.data().username,
+              tagCount: taggingFrequency[doc.id] || 0
+            }))
+            .sort((a, b) => b.tagCount - a.tagCount); // Sort by tag frequency (most tagged first)
+          
           setFriends(friendsList);
           setFilteredFriends(friendsList); // Initialize filtered list with all friends
         }
@@ -68,6 +127,10 @@ export default function PostDetails() {
     };
 
     fetchFriends();
+
+    return () => {
+      console.warn = originalWarn;
+    };
   }, []);
 
   // Add search handler
@@ -77,14 +140,55 @@ export default function PostDetails() {
       setFilteredFriends(friends); // Show all friends when search is empty
       return;
     }
-    // Filter friends based on search text
-    const filtered = friends.filter(friend =>
-      friend.username.toLowerCase().includes(text.toLowerCase())
-    );
+    // Filter friends based on search text, maintaining selection and tag frequency order
+    const filtered = friends
+      .filter(friend =>
+        friend.username.toLowerCase().includes(text.toLowerCase())
+      )
+      .sort((a, b) => {
+        if (a.isSelected && !b.isSelected) return -1;
+        if (!a.isSelected && b.isSelected) return 1;
+        return b.tagCount - a.tagCount;
+      });
     setFilteredFriends(filtered);
   };
 
   const toggleFriend = (friend) => {
+    setFriends(prevFriends => {
+      const updatedFriend = { ...friend, isSelected: !friend.isSelected };
+      const otherFriends = prevFriends.filter(f => f.id !== friend.id);
+      
+      if (updatedFriend.isSelected) {
+        // Move to top if selected
+        return [updatedFriend, ...otherFriends];
+      } else {
+        // Move back to original position based on tag frequency
+        return [...otherFriends, updatedFriend].sort((a, b) => {
+          if (a.isSelected && !b.isSelected) return -1;
+          if (!a.isSelected && b.isSelected) return 1;
+          return b.tagCount - a.tagCount;
+        });
+      }
+    });
+    
+    setFilteredFriends(prevFiltered => {
+      const updatedFriend = { ...friend, isSelected: !friend.isSelected };
+      const otherFriends = prevFiltered.filter(f => f.id !== friend.id);
+      
+      if (updatedFriend.isSelected) {
+        // Move to top if selected
+        return [updatedFriend, ...otherFriends];
+      } else {
+        // Move back to original position based on tag frequency
+        return [...otherFriends, updatedFriend].sort((a, b) => {
+          if (a.isSelected && !b.isSelected) return -1;
+          if (!a.isSelected && b.isSelected) return 1;
+          return b.tagCount - a.tagCount;
+        });
+      }
+    });
+
+    // Update selectedFriends array for upload functionality
     setSelectedFriends(prev => {
       const isSelected = prev.some(f => f.id === friend.id);
       if (isSelected) {
@@ -158,13 +262,41 @@ export default function PostDetails() {
         caption: caption || '',
         userId: auth.currentUser.uid,
         owners: owners,
+        location: selectedLocation || null,
         createdAt: serverTimestamp(),
       };
 
       await addDoc(collection(db, 'posts'), postData);
 
+      // Update tagging frequency for selected friends
+      if (selectedFriends.length > 0) {
+        try {
+          const userRef = doc(db, 'users', auth.currentUser.uid);
+          const currentUserDoc = await getDoc(userRef);
+          const currentData = currentUserDoc.data();
+          const currentFrequency = currentData.friendTaggingFrequency || {};
+          
+          // Increment count for each tagged friend
+          selectedFriends.forEach(friend => {
+            currentFrequency[friend.id] = (currentFrequency[friend.id] || 0) + 1;
+          });
+          
+          await updateDoc(userRef, {
+            friendTaggingFrequency: currentFrequency
+          });
+        } catch (error) {
+          console.error('Error updating tagging frequency:', error);
+          // Don't show error to user, just log it
+        }
+      }
+
       Alert.alert('Success', 'Post uploaded successfully!');
-      router.replace('/tabs/FeedScreen');
+      
+      // Navigate back to tabs and clear PostScreen images
+      router.replace({
+        pathname: '/tabs/FeedScreen',
+        params: { clearPostImages: 'true' }
+      });
     } catch (error) {
       console.error('Error uploading post:', error);
       setUploading(false);
@@ -189,8 +321,44 @@ export default function PostDetails() {
     }, 100);
   };
 
+  const handleFriendsSearchFocus = () => {
+    // Only scroll once when first focused, not on every keystroke
+    if (!hasScrolledToFriends) {
+      setHasScrolledToFriends(true);
+      setTimeout(() => {
+        scrollViewRef.current?.scrollTo({
+          y: IMAGE_SIZE + 200, // Scroll past images and caption
+          animated: true
+        });
+      }, 100);
+    }
+  };
+
   const renderHeader = () => (
     <>
+      <View style={styles.locationSection}>
+        <TouchableOpacity
+          style={styles.locationButton}
+          onPress={() => setShowLocationPicker(true)}
+        >
+          <Ionicons 
+            name="location-outline" 
+            size={20} 
+            color={selectedLocation ? "#007AFF" : "#666"} 
+          />
+          <Text style={[
+            styles.locationButtonText,
+            selectedLocation && styles.selectedLocationText
+          ]}>
+            {selectedLocation 
+              ? selectedLocation.name 
+              : "Detecting location..."
+            }
+          </Text>
+          <Ionicons name="chevron-forward" size={16} color="#666" />
+        </TouchableOpacity>
+      </View>
+
       <View style={styles.imageGalleryContainer}>
         <FlatList
           data={images}
@@ -222,6 +390,7 @@ export default function PostDetails() {
       <View style={styles.captionContainer}>
         <TextInput
           placeholder="Write a caption..."
+          placeholderTextColor="#999"
           value={caption}
           onChangeText={setCaption}
           onFocus={handleCaptionFocus}
@@ -232,34 +401,18 @@ export default function PostDetails() {
       </View>
 
       <View style={styles.tagFriendsSection}>
-        <Text style={styles.sectionTitle}>Tag Friends</Text>
         <View style={styles.searchContainer}>
           <TextInput
             style={styles.searchInput}
-            placeholder="Search friends..."
+            placeholder="Invite friends to post..."
+            placeholderTextColor="#999"
             value={searchQuery}
             onChangeText={handleSearch}
+            onFocus={handleFriendsSearchFocus}
+            onBlur={() => setHasScrolledToFriends(false)}
             autoCapitalize="none"
           />
         </View>
-
-        {selectedFriends.length > 0 && (
-          <View style={styles.selectedFriendsContainer}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              {selectedFriends.map(friend => (
-                <View key={friend.id} style={styles.selectedFriendChip}>
-                  <Text style={styles.selectedFriendUsername}>{friend.username}</Text>
-                  <TouchableOpacity
-                    onPress={() => toggleFriend(friend)}
-                    style={styles.removeSelectedButton}
-                  >
-                    <Ionicons name="close-circle" size={20} color="#666" />
-                  </TouchableOpacity>
-                </View>
-              ))}
-            </ScrollView>
-          </View>
-        )}
       </View>
     </>
   );
@@ -275,7 +428,16 @@ export default function PostDetails() {
           <TouchableOpacity onPress={() => router.back()}>
             <Ionicons name="arrow-back" size={24} color="#000" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>New Post</Text>
+          <TouchableOpacity 
+            style={styles.headerTitleArea}
+            onPress={(e) => {
+              e.stopPropagation();
+              Keyboard.dismiss();
+            }}
+            activeOpacity={1}
+          >
+            <Text style={styles.headerTitle}>New Post</Text>
+          </TouchableOpacity>
           <TouchableOpacity 
             onPress={uploadPost}
             disabled={uploading}
@@ -290,27 +452,58 @@ export default function PostDetails() {
         <ScrollView
           ref={scrollViewRef}
           style={styles.content}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="interactive"
+          keyboardShouldPersistTaps="always"
+          keyboardDismissMode="none"
+          automaticallyAdjustKeyboardInsets={false}
+          nestedScrollEnabled={false}
           contentContainerStyle={styles.scrollContent}
         >
           {renderHeader()}
           
-          {filteredFriends.map(item => (
-            <TouchableOpacity
-              key={item.id}
-              style={[
-                styles.friendItem,
-                selectedFriends.some(f => f.id === item.id) && styles.selectedFriend
-              ]}
-              onPress={() => toggleFriend(item)}
-            >
-              <Text style={styles.friendName}>{item.username}</Text>
-              {selectedFriends.some(f => f.id === item.id) && (
-                <Ionicons name="checkmark-circle" size={24} color="#007AFF" />
+          <View style={styles.friendsListContainer}>
+            <FlatList
+              data={filteredFriends}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[
+                    styles.friendItem,
+                    item.isSelected && styles.selectedFriend
+                  ]}
+                  onPress={() => toggleFriend(item)}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.friendInfo}>
+                    <Text style={[
+                      styles.friendName,
+                      item.isSelected && styles.selectedFriendName
+                    ]}>
+                      {item.username}
+                    </Text>
+                    {item.isSelected && (
+                      <Text style={styles.selectedLabel}>Selected</Text>
+                    )}
+                  </View>
+                  {item.isSelected ? (
+                    <Ionicons name="checkmark-circle" size={24} color="#007AFF" />
+                  ) : (
+                    <Ionicons name="add-circle-outline" size={24} color="#ccc" />
+                  )}
+                </TouchableOpacity>
               )}
-            </TouchableOpacity>
-          ))}
+              keyExtractor={(item) => item.id}
+              showsVerticalScrollIndicator={true}
+              nestedScrollEnabled={true}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="none"
+              ListEmptyComponent={
+                searchQuery.trim() ? (
+                  <View style={styles.noResultsContainer}>
+                    <Text style={styles.noResultsText}>No friends found</Text>
+                  </View>
+                ) : null
+              }
+            />
+          </View>
         </ScrollView>
 
         {uploading && (
@@ -325,6 +518,36 @@ export default function PostDetails() {
             </Text>
           </View>
         )}
+
+        <Modal
+          visible={showLocationPicker}
+          animationType="slide"
+          presentationStyle="pageSheet"
+        >
+          <SafeAreaView style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <TouchableOpacity onPress={() => setShowLocationPicker(false)}>
+                <Text style={styles.cancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <Text style={styles.modalTitle}>Add Location</Text>
+              <TouchableOpacity 
+                onPress={() => setShowLocationPicker(false)}
+                disabled={!selectedLocation}
+              >
+                <Text style={[
+                  styles.doneText,
+                  !selectedLocation && styles.disabledText
+                ]}>
+                  Done
+                </Text>
+              </TouchableOpacity>
+            </View>
+            <LocationPicker 
+              onLocationSelect={setSelectedLocation}
+              initialLocation={selectedLocation}
+            />
+          </SafeAreaView>
+        </Modal>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -347,6 +570,11 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#eee',
     backgroundColor: '#fff'
+  },
+  headerTitleArea: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center'
   },
   headerTitle: {
     fontSize: 18,
@@ -417,8 +645,15 @@ const styles = StyleSheet.create({
     padding: 8
   },
   tagFriendsSection: {
-    marginTop: 20,
+    marginTop: 10,
     paddingHorizontal: 15
+  },
+  friendsListContainer: {
+    height: 336, // Height for exactly 6 friends (56px each)
+    borderWidth: 1,
+    borderColor: '#eee',
+    borderRadius: 8,
+    marginTop: 10
   },
   searchContainer: {
     marginBottom: 15
@@ -467,10 +702,35 @@ const styles = StyleSheet.create({
     borderBottomColor: '#eee'
   },
   selectedFriend: {
-    backgroundColor: '#f0f0f0'
+    backgroundColor: '#f0f8ff',
+    borderLeftWidth: 3,
+    borderLeftColor: '#007AFF'
+  },
+  friendInfo: {
+    flex: 1
   },
   friendName: {
     fontSize: 16
+  },
+  selectedFriendName: {
+    color: '#007AFF',
+    fontWeight: '600'
+  },
+  selectedLabel: {
+    fontSize: 12,
+    color: '#007AFF',
+    marginTop: 2
+  },
+  noResultsContainer: {
+    padding: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 100
+  },
+  noResultsText: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center'
   },
   noFriendsText: {
     textAlign: 'center',
@@ -490,5 +750,59 @@ const styles = StyleSheet.create({
   progressText: {
     color: '#fff',
     marginTop: 10
+  },
+  locationSection: {
+    marginTop: 10,
+    marginBottom: 15,
+    paddingHorizontal: 15
+  },
+  locationButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: '#f0f8ff',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e0e0e0'
+  },
+  locationButtonText: {
+    flex: 1,
+    marginLeft: 8,
+    fontSize: 16,
+    color: '#666'
+  },
+  selectedLocationText: {
+    color: '#007AFF',
+    fontWeight: '500'
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: '#fff'
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee'
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '600'
+  },
+  cancelText: {
+    fontSize: 16,
+    color: '#007AFF'
+  },
+  doneText: {
+    fontSize: 16,
+    color: '#007AFF',
+    fontWeight: '600'
+  },
+  disabledText: {
+    color: '#ccc'
   }
 }); 

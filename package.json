@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@expo/vector-icons": "^14.1.0",
+    "@googlemaps/google-maps-services-js": "^3.4.1",
     "@react-native-async-storage/async-storage": "2.1.2",
     "@react-native-community/progress-view": "^1.5.0",
     "@react-native-firebase/firestore": "^22.2.0",
@@ -41,6 +42,7 @@
     "react": "19.0.0",
     "react-dom": "19.0.0",
     "react-native": "^0.79.3",
+    "react-native-draggable-flatlist": "^4.0.3",
     "react-native-gesture-handler": "~2.24.0",
     "react-native-image-crop-picker": "^0.50.1",
     "react-native-progress": "^5.0.1",

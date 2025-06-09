@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { memo } from 'react';
-import { Dimensions, FlatList, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Dimensions, FlatList, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { State, TapGestureHandler } from 'react-native-gesture-handler';
 
 const breadNormal = require('../../assets/images/bread-normal.png');
@@ -65,17 +65,31 @@ export const DetailPost = memo(({
   return (
     <View style={styles.postContainer}>
       <View style={styles.postHeader}>
-        <View style={styles.usernameContainer}>
-          {(post.owners || [{ id: post.userId, username: post.username || 'Unknown' }]).map((owner, index) => (
-            <View key={`${post.id}-owner-${owner.id}-${index}`} style={styles.usernameWrapper}>
-              <TouchableOpacity onPress={() => onUsernamePress(owner.id)}>
-                <Text style={styles.username}>{owner.username}</Text>
-              </TouchableOpacity>
-              {index < (post.owners?.length || 1) - 1 && (
-                <Text style={styles.usernameSeparator}> • </Text>
-              )}
+        <View style={styles.headerContent}>
+          <ScrollView 
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.usernameScrollContainer}
+          >
+            <View style={styles.usernameContainer}>
+              {(post.owners || [{ id: post.userId, username: post.username || 'Unknown' }]).map((owner, index) => (
+                <View key={`${post.id}-owner-${owner.id}-${index}`} style={styles.usernameWrapper}>
+                  <TouchableOpacity onPress={() => onUsernamePress(owner.id)}>
+                    <Text style={styles.username}>{owner.username}</Text>
+                  </TouchableOpacity>
+                  {index < (post.owners?.length || 1) - 1 && (
+                    <Text style={styles.usernameSeparator}> • </Text>
+                  )}
+                </View>
+              ))}
             </View>
-          ))}
+          </ScrollView>
+          {post.location && (
+            <View style={styles.locationContainer}>
+              <Ionicons name="location-outline" size={12} color="#666" />
+              <Text style={styles.locationText}>{post.location.name}</Text>
+            </View>
+          )}
         </View>
         {(post.userId === post.currentUserId || post.postOwners?.includes(post.currentUserId)) && (
           <TouchableOpacity 
@@ -161,10 +175,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 12
   },
+  headerContent: {
+    flexDirection: 'column',
+    flex: 1
+  },
+  usernameScrollContainer: {
+    marginBottom: 4
+  },
   usernameContainer: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    flex: 1
+    alignItems: 'center'
   },
   usernameWrapper: {
     flexDirection: 'row',
@@ -301,5 +321,15 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: '#fff',
     fontWeight: '600'
+  },
+  locationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 2
+  },
+  locationText: {
+    fontSize: 12,
+    color: '#666',
+    marginLeft: 4
   }
 }); 
