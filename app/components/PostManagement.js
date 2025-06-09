@@ -577,7 +577,7 @@ export default function PostManagement({
 
           <ScrollView>
             {searching ? (
-              <ActivityIndicator size="large" color="#1976d2" />
+              <ActivityIndicator size="large" color={theme.accent} />
             ) : searchUsername ? (
               searchResults.map(user => (
                 <TouchableOpacity

@@ -2,24 +2,27 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import {
-    ActivityIndicator,
-    Dimensions,
-    FlatList,
-    Image,
-    RefreshControl,
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View
+  ActivityIndicator,
+  Animated,
+  Dimensions,
+  FlatList,
+  Image,
+  RefreshControl,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import { PinchGestureHandler, State, TapGestureHandler } from 'react-native-gesture-handler';
 import { auth } from '../../firebase';
+import Cat from '../components/Cat';
 import PostManagement from '../components/PostManagement';
 import { PostSkeleton } from '../components/ui/SkeletonLoader';
+import { useCat } from '../contexts/CatContext';
 import { useTheme } from '../contexts/ThemeContext';
 import * as postService from '../services/postService';
 import { handleDeletePost as deletePostUtil } from '../utils/postOptionsUtils';
@@ -30,7 +33,7 @@ const WINDOW_WIDTH = Dimensions.get('window').width;
 // Import bread slice images and preload them
 const breadNormal = require('../../assets/images/bread-normal.png');
 const breadBitten = require('../../assets/images/bread-bitten.png');
-const biteAnimation = require('../../assets/images/bite-animation.png');
+const biteAnimationImage = require('../../assets/images/bite-animation.png');
 
 // Preload images on app start
 Image.prefetch(Image.resolveAssetSource(breadNormal).uri);
@@ -55,11 +58,10 @@ const getStyles = (theme) => StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 15,
-    paddingVertical: 10,
+    paddingVertical: 6,
     borderBottomWidth: 1,
     borderBottomColor: theme.border,
     backgroundColor: theme.surface,
-    marginBottom: 5
   },
   headerTitle: {
     fontSize: 24,
@@ -262,7 +264,29 @@ const getStyles = (theme) => StyleSheet.create({
     fontSize: 12,
     color: theme.textSecondary,
     marginLeft: 4
-  }
+  },
+  biteAnimation: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    width: 450,
+    height: 450,
+  },
+  biteMarkOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: '100%',
+    height: '100%',
+  },
+  globalBiteAnimation: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: 450,
+    height: 450,
+    zIndex: 1000, // Ensure it renders above everything
+  },
 });
 
 // Memoized BreadButton component to prevent unnecessary re-renders
@@ -285,7 +309,8 @@ const BreadButton = React.memo(({ postId, hasUserBited, onPress, theme }) => {
 
 const FeedScreen = forwardRef((props, ref) => {
   const { theme } = useTheme();
-  const styles = getStyles(theme);
+  const { triggerCatEating, getCatPosition } = useCat();
+  const styles = useMemo(() => getStyles(theme), [theme]);
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -294,12 +319,15 @@ const FeedScreen = forwardRef((props, ref) => {
   const [lastVisible, setLastVisible] = useState(null);
   const [viewMode, setViewMode] = useState('detail'); // 'detail' or 'grid'
   const [currentImageIndices, setCurrentImageIndices] = useState({}); // Track current image index for each post
+  const [biteAnimations, setBiteAnimations] = useState({});
   const [selectedPost, setSelectedPost] = useState(null);
   const [showPostOptions, setShowPostOptions] = useState(false);
   const router = useRouter();
   const flatListRef = useRef(null);
   const [scale, setScale] = useState(1);
   const pinchRef = useRef();
+  const biteMarkRefs = useRef({});
+  const postImageRefs = useRef({}); // Add refs for post images
 
   // Expose scrollToTop function to parent component
   useImperativeHandle(ref, () => ({
@@ -389,9 +417,21 @@ const FeedScreen = forwardRef((props, ref) => {
     });
   }, []);
 
+  // Main feed bite handler with cat animation
   const handleBitePress = useCallback(async (postId) => {
+    // Check if user has already bitten this post
+    const post = posts.find(p => p.id === postId);
+    const currentlyBited = post?.bitedBy?.includes(auth.currentUser.uid) || false;
+    
+    // Only trigger cat animations when ADDING a bite (not removing) - MAIN FEED ONLY
+    if (!currentlyBited) {
+      triggerCatEating();
+      triggerBiteAnimation(postId);
+    }
+    
     try {
       const hasUserBited = await postService.toggleBite(postId);
+      
       updatePostOptimistic(postId, (post) => ({
         ...post,
         bites: hasUserBited ? (post.bites || 0) + 1 : Math.max(0, (post.bites || 0) - 1),
@@ -402,11 +442,17 @@ const FeedScreen = forwardRef((props, ref) => {
     } catch (error) {
       console.error('Error toggling bite:', error);
     }
-  }, [updatePostOptimistic]);
+  }, [posts, updatePostOptimistic, triggerCatEating, triggerBiteAnimation]);
 
   const handleDoubleTapLike = useCallback(async (postId) => {
     const post = posts.find(p => p.id === postId);
     if (!post || post.bitedBy?.includes(auth.currentUser.uid)) return;
+
+    // Trigger bite animation
+    triggerBiteAnimation(postId);
+    
+    // Trigger cat eating
+    triggerCatEating();
 
     try {
       await postService.toggleBite(postId);
@@ -418,7 +464,7 @@ const FeedScreen = forwardRef((props, ref) => {
     } catch (error) {
       console.error('Error handling double tap like:', error);
     }
-  }, [posts, updatePostOptimistic]);
+  }, [posts, updatePostOptimistic, triggerBiteAnimation, triggerCatEating]);
 
   const handleImageScroll = useCallback((event, postId) => {
     const contentOffset = event.nativeEvent.contentOffset.x;
@@ -429,15 +475,118 @@ const FeedScreen = forwardRef((props, ref) => {
     }));
   }, []);
 
+  const triggerBiteAnimation = useCallback(async (postId) => {
+    // First, find the post to get its image position
+    const post = posts.find(p => p.id === postId);
+    if (!post) return;
+
+    // Get the current image index for this post (or default to 0)
+    const currentImageIndex = currentImageIndices[postId] || 0;
+    const imageRef = postImageRefs.current[`${postId}-${currentImageIndex}`];
+    
+    if (!imageRef) {
+      console.warn('Post image ref not found for post:', postId);
+      return;
+    }
+
+    // Get both post image and cat positions
+    const [imagePosition, catPosition] = await Promise.all([
+      new Promise(resolve => {
+        imageRef.measureInWindow((x, y, width, height) => {
+          resolve({ x, y, width, height });
+        });
+      }),
+      getCatPosition()
+    ]);
+
+    // Calculate starting position (top-right area of the image, but keep it on screen)
+    const biteMarkSize = 450;
+    const startX = Math.min(
+      imagePosition.x + imagePosition.width - 50, // Start near right edge of image
+      WINDOW_WIDTH - biteMarkSize // But don't go off screen
+    );
+    const startY = imagePosition.y;
+
+    // Create animated values for this post
+    const animatedOpacity = new Animated.Value(0.8); // Start visible immediately
+    const animatedX = new Animated.Value(0); // Start at 0, will translate from static position
+    const animatedY = new Animated.Value(0); // Start at 0, will translate from static position
+    const animatedScale = new Animated.Value(1);
+    
+    const animationObject = {
+      opacity: animatedOpacity,
+      translateX: animatedX,
+      translateY: animatedY,
+      scale: animatedScale,
+      startX: startX, // Measured starting X position
+      startY: startY, // Measured starting Y position
+    };
+    
+    setBiteAnimations(prev => ({
+      ...prev,
+      [postId]: animationObject
+    }));
+
+    // Wait a moment for the component to render and ref to be set
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    // Calculate trajectory from starting position to cat (relative movement)
+    const targetX = catPosition.x - (startX + biteMarkSize / 2); // Relative movement needed (center of bite mark to cat)
+    const targetY = (catPosition.y + 5) - (startY + biteMarkSize / 2); // Aim slightly below cat center (mouth area)
+
+    // Start animation sequence
+    Animated.sequence([
+      // Linger for 1 second at starting position (visible immediately)
+      Animated.delay(1000),
+      // Move towards cat's mouth while fading and shrinking
+      Animated.parallel([
+        Animated.timing(animatedOpacity, {
+          toValue: 0.3, // Fade to more transparent
+          duration: 800,
+          useNativeDriver: true,
+        }),
+        Animated.timing(animatedX, {
+          toValue: targetX, // Move to cat X position
+          duration: 800,
+          useNativeDriver: true,
+        }),
+        Animated.timing(animatedY, {
+          toValue: targetY, // Move to cat Y position
+          duration: 800,
+          useNativeDriver: true,
+        }),
+        Animated.timing(animatedScale, {
+          toValue: 0.02, // Shrink to almost nothing
+          duration: 800,
+          useNativeDriver: true,
+        }),
+      ]),
+      // Final fade out
+      Animated.timing(animatedOpacity, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      // Clean up animation after completion
+      setBiteAnimations(prev => {
+        const newAnimations = { ...prev };
+        delete newAnimations[postId];
+        return newAnimations;
+      });
+    });
+  }, [getCatPosition, posts, currentImageIndices]);
+
   const onRefresh = async () => {
     setRefreshing(true);
     await fetchPosts();
     setRefreshing(false);
   };
 
-  const toggleViewMode = () => {
+  // Memoize toggleViewMode
+  const toggleViewMode = useCallback(() => {
     setViewMode(prev => prev === 'detail' ? 'grid' : 'detail');
-  };
+  }, []);
 
   const handleUsernamePress = (userId) => {
     router.push({
@@ -526,8 +675,13 @@ const FeedScreen = forwardRef((props, ref) => {
               pagingEnabled
               showsHorizontalScrollIndicator={false}
               keyExtractor={(url, index) => `${item.id}-image-${index}-${url}`}
-              renderItem={({ item: imageUrl }) => (
+              renderItem={({ item: imageUrl, index }) => (
                 <Image 
+                  ref={(ref) => {
+                    if (ref) {
+                      postImageRefs.current[`${item.id}-${index}`] = ref;
+                    }
+                  }}
                   source={{ uri: imageUrl }} 
                   style={styles.postImage}
                   resizeMode="cover"
@@ -549,6 +703,8 @@ const FeedScreen = forwardRef((props, ref) => {
                 ))}
               </View>
             )}
+            
+
           </View>
         </TapGestureHandler>
 
@@ -639,9 +795,9 @@ const FeedScreen = forwardRef((props, ref) => {
     index,
   }), [viewMode]);
 
-  const Header = () => (
+  const Header = useCallback(() => (
     <View style={styles.header}>
-      <Text style={styles.headerTitle}>Feed</Text>
+      <Cat />
       <TouchableOpacity onPress={toggleViewMode} style={styles.viewModeButton}>
         <Ionicons 
           name={viewMode === 'detail' ? 'grid-outline' : 'list-outline'} 
@@ -650,7 +806,7 @@ const FeedScreen = forwardRef((props, ref) => {
         />
       </TouchableOpacity>
     </View>
-  );
+  ), [viewMode, styles, theme.accent, toggleViewMode]);
 
   const onPinchGestureEvent = useCallback(({ nativeEvent }) => {
     setScale(nativeEvent.scale);
@@ -691,50 +847,56 @@ const FeedScreen = forwardRef((props, ref) => {
         onHandlerStateChange={onPinchHandlerStateChange}
       >
         <View style={styles.container}>
-          <FlatList
-            ref={flatListRef}
-            data={posts}
-            renderItem={viewMode === 'detail' ? renderDetailPost : renderGridPost}
-            keyExtractor={item => item.id ? `post-${item.id}` : `generated-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`}
-            numColumns={viewMode === 'grid' ? 3 : 1}
-            key={viewMode}
-            ListHeaderComponent={Header}
-            contentContainerStyle={styles.contentContainer}
+          <ScrollView
             refreshControl={
               <RefreshControl
                 refreshing={refreshing}
                 onRefresh={onRefresh}
-                tintColor="#1976d2"
+                tintColor={theme.accent}
               />
             }
-            onEndReached={loadMorePosts}
-            onEndReachedThreshold={0.5}
-            getItemLayout={getItemLayout}
-            onScrollToIndexFailed={info => {
-              const wait = new Promise(resolve => setTimeout(resolve, 100));
-              wait.then(() => {
-                flatListRef.current?.scrollToIndex({
-                  index: info.index,
-                  animated: true,
-                  viewPosition: 0
-                });
-              });
-            }}
-            ListFooterComponent={
-              loadingMore ? (
-                <View style={styles.loadingMore}>
-                  <ActivityIndicator color="#1976d2" />
-                </View>
-              ) : null
-            }
-            ListEmptyComponent={
-              !loading && (
-                <View style={styles.emptyContainer}>
-                  <Text style={styles.emptyText}>No posts yet</Text>
-                </View>
-              )
-            }
-          />
+            contentContainerStyle={{ flex: 1 }}
+          >
+            <Header />
+            <View style={{ flex: 1 }}>
+              <FlatList
+                ref={flatListRef}
+                data={posts}
+                renderItem={viewMode === 'detail' ? renderDetailPost : renderGridPost}
+                keyExtractor={item => item.id ? `post-${item.id}` : `generated-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`}
+                numColumns={viewMode === 'grid' ? 3 : 1}
+                key={viewMode}
+                contentContainerStyle={styles.contentContainer}
+                onEndReached={loadMorePosts}
+                onEndReachedThreshold={0.5}
+                getItemLayout={getItemLayout}
+                onScrollToIndexFailed={info => {
+                  const wait = new Promise(resolve => setTimeout(resolve, 100));
+                  wait.then(() => {
+                    flatListRef.current?.scrollToIndex({
+                      index: info.index,
+                      animated: true,
+                      viewPosition: 0
+                    });
+                  });
+                }}
+                ListFooterComponent={
+                  loadingMore ? (
+                    <View style={styles.loadingMore}>
+                      <ActivityIndicator color={theme.accent} />
+                    </View>
+                  ) : null
+                }
+                ListEmptyComponent={
+                  !loading && (
+                    <View style={styles.emptyContainer}>
+                      <Text style={styles.emptyText}>No posts yet</Text>
+                    </View>
+                  )
+                }
+              />
+            </View>
+          </ScrollView>
           <PostManagement
             selectedPost={selectedPost}
             onClose={() => {
@@ -748,6 +910,41 @@ const FeedScreen = forwardRef((props, ref) => {
           />
         </View>
       </PinchGestureHandler>
+      
+      {/* Global Bite Mark Animations - render over everything */}
+      {Object.entries(biteAnimations).map(([postId, animation]) => (
+        <Animated.View
+          key={`bite-${postId}`}
+          style={[
+            styles.globalBiteAnimation,
+            {
+              opacity: animation.opacity,
+              left: animation.startX,
+              top: animation.startY,
+              transform: [
+                { translateX: animation.translateX },
+                { translateY: animation.translateY },
+                { scale: animation.scale },
+              ],
+            },
+          ]}
+          pointerEvents="none"
+        >
+          <Animated.Image
+            ref={(ref) => {
+              if (ref) {
+                biteMarkRefs.current[postId] = ref;
+              }
+            }}
+            source={biteAnimationImage}
+            style={{
+              width: '100%',
+              height: '100%',
+            }}
+            resizeMode="contain"
+          />
+        </Animated.View>
+      ))}
     </SafeAreaView>
   );
 });

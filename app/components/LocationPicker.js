@@ -446,7 +446,7 @@ const LocationPicker = ({ onLocationSelect, initialLocation = null }) => {
 
       {loading && (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="small" color="#007AFF" />
+          <ActivityIndicator size="small" color={theme.accent} />
           <Text style={styles.loadingText}>Searching...</Text>
         </View>
       )}

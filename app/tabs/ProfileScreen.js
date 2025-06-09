@@ -777,7 +777,7 @@ const ProfileScreen = forwardRef((props, ref) => {
     if (loading && !refreshing) {
       return (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" />
+          <ActivityIndicator size="large" color={theme.accent} />
         </View>
       );
     }
@@ -812,6 +812,7 @@ const ProfileScreen = forwardRef((props, ref) => {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
+            tintColor={theme.accent}
           />
         }
       />
@@ -879,7 +880,7 @@ const ProfileScreen = forwardRef((props, ref) => {
                 autoCapitalize="none"
               />
               {searching && (
-                <ActivityIndicator style={styles.searchSpinner} />
+                <ActivityIndicator style={styles.searchSpinner} color={theme.accent} />
               )}
             </View>
 

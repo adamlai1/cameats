@@ -186,6 +186,7 @@ const ProfileScreen = forwardRef((props, ref) => {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
+            tintColor={theme.accent}
           />
         }
       />

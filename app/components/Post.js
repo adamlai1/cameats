@@ -1,54 +1,75 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { memo } from 'react';
-import { Dimensions, FlatList, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { memo, useCallback, useEffect, useState } from 'react';
+import {
+    Animated,
+    Dimensions,
+    FlatList,
+    Image,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View
+} from 'react-native';
 import { State, TapGestureHandler } from 'react-native-gesture-handler';
+import { useTheme } from '../contexts/ThemeContext';
 
+// Import bread slice images and bite animation
 const breadNormal = require('../../assets/images/bread-normal.png');
 const breadBitten = require('../../assets/images/bread-bitten.png');
+const biteAnimationImage = require('../../assets/images/bite-animation.png');
 
 const WINDOW_WIDTH = Dimensions.get('window').width;
 
 // Memoized BreadButton component
-const BreadButton = memo(({ postId, hasUserBited, onPress }) => (
-  <TouchableOpacity 
-    style={styles.biteButton}
-    onPress={() => onPress(postId)}
-    activeOpacity={0.7}
-  >
-    <Image 
-      source={hasUserBited ? breadBitten : breadNormal}
-      style={styles.breadEmoji}
-      fadeDuration={0}
-    />
-  </TouchableOpacity>
-));
+const BreadButton = memo(({ postId, hasUserBited, onPress, theme }) => {
+  const styles = getStyles(theme);
+  return (
+    <TouchableOpacity 
+      style={styles.biteButton}
+      onPress={() => onPress(postId)}
+      activeOpacity={0.7}
+    >
+      <Image 
+        source={hasUserBited ? breadBitten : breadNormal}
+        style={styles.breadEmoji}
+        fadeDuration={0}
+      />
+    </TouchableOpacity>
+  );
+});
 
 // Grid Post Component
-export const GridPost = memo(({ post, onPress }) => (
-  <TouchableOpacity onPress={() => onPress(post)} style={styles.gridItem}>
-    <Image 
-      source={{ uri: post.imageUrls?.[0] || post.imageUrl }} 
-      style={styles.gridImage} 
-    />
-    {post.owners?.length > 1 && (
-      <View style={styles.coOwnedBadge}>
-        <Ionicons name="people" size={12} color="#fff" />
-      </View>
-    )}
-    {post.imageUrls?.length > 1 && (
-      <View style={styles.multipleImagesBadge}>
-        <Ionicons name="images" size={12} color="#fff" />
-      </View>
-    )}
-    <View style={styles.gridBiteCounter}>
+export const GridPost = memo(({ post, onPress }) => {
+  const { theme } = useTheme();
+  const styles = getStyles(theme);
+
+  return (
+    <TouchableOpacity onPress={() => onPress(post)} style={styles.gridItem}>
       <Image 
-        source={post.bitedBy?.includes(post.currentUserId) ? breadBitten : breadNormal}
-        style={styles.gridBreadEmoji}
+        source={{ uri: post.imageUrls?.[0] || post.imageUrl }} 
+        style={styles.gridImage} 
       />
-      <Text style={styles.gridBiteCount}>{post.bites || 0}</Text>
-    </View>
-  </TouchableOpacity>
-));
+      {post.owners?.length > 1 && (
+        <View style={styles.coOwnedBadge}>
+          <Ionicons name="people" size={12} color="#fff" />
+        </View>
+      )}
+      {post.imageUrls?.length > 1 && (
+        <View style={styles.multipleImagesBadge}>
+          <Ionicons name="images" size={12} color="#fff" />
+        </View>
+      )}
+      <View style={styles.gridBiteCounter}>
+        <Image 
+          source={post.bitedBy?.includes(post.currentUserId) ? breadBitten : breadNormal}
+          style={styles.gridBreadEmoji}
+        />
+        <Text style={styles.gridBiteCount}>{post.bites || 0}</Text>
+      </View>
+    </TouchableOpacity>
+  );
+});
 
 // Detail Post Component
 export const DetailPost = memo(({ 
@@ -60,7 +81,57 @@ export const DetailPost = memo(({
   onOptionsPress,
   onImageScroll,
 }) => {
+  const { theme } = useTheme();
+  const styles = getStyles(theme);
+  const [biteAnimations, setBiteAnimations] = useState({});
+  const [previousBiteState, setPreviousBiteState] = useState(null);
   const hasUserBited = post.bitedBy?.includes(post.currentUserId) || false;
+
+  // Effect to detect when bite state changes and trigger animation
+  useEffect(() => {
+    if (previousBiteState !== null && !previousBiteState && hasUserBited) {
+      // User just added a bite (went from false to true)
+      triggerBiteAnimation(post.id);
+    }
+    setPreviousBiteState(hasUserBited);
+  }, [hasUserBited, post.id, triggerBiteAnimation]);
+
+  const triggerBiteAnimation = useCallback((postId) => {
+    // Create new animated value for this post - start visible immediately
+    const animatedValue = new Animated.Value(1);
+    
+    setBiteAnimations(prev => ({
+      ...prev,
+      [postId]: animatedValue
+    }));
+
+    // Start animation sequence
+    Animated.sequence([
+      // Hold for 2 seconds (visible immediately)
+      Animated.delay(2000),
+      // Fade out
+      Animated.timing(animatedValue, {
+        toValue: 0,
+        duration: 500,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      // Clean up animation after completion
+      setBiteAnimations(prev => {
+        const newAnimations = { ...prev };
+        delete newAnimations[postId];
+        return newAnimations;
+      });
+    });
+  }, []);
+
+  const handleDoubleTap = () => {
+    // Trigger animation if user hasn't already bitten
+    if (!hasUserBited) {
+      triggerBiteAnimation(post.id);
+    }
+    onDoubleTapLike(post.id);
+  };
 
   return (
     <View style={styles.postContainer}>
@@ -86,7 +157,7 @@ export const DetailPost = memo(({
           </ScrollView>
           {post.location && (
             <View style={styles.locationContainer}>
-              <Ionicons name="location-outline" size={12} color="#666" />
+              <Ionicons name="location-outline" size={12} color={theme.textSecondary} />
               <Text style={styles.locationText}>{post.location.name}</Text>
             </View>
           )}
@@ -96,7 +167,7 @@ export const DetailPost = memo(({
             style={styles.optionsButton}
             onPress={() => onOptionsPress(post)}
           >
-            <Ionicons name="ellipsis-horizontal" size={20} color="#000" />
+            <Ionicons name="ellipsis-horizontal" size={20} color={theme.text} />
           </TouchableOpacity>
         )}
       </View>
@@ -105,7 +176,7 @@ export const DetailPost = memo(({
         numberOfTaps={2}
         onHandlerStateChange={(event) => {
           if (event.nativeEvent.state === State.ACTIVE) {
-            onDoubleTapLike(post.id);
+            handleDoubleTap();
           }
         }}
       >
@@ -139,13 +210,26 @@ export const DetailPost = memo(({
               ))}
             </View>
           )}
+          
+          {/* Bite Animation */}
+          {biteAnimations[post.id] && (
+            <Animated.Image
+              source={biteAnimationImage}
+              style={[
+                styles.biteAnimation,
+                {
+                  opacity: biteAnimations[post.id],
+                },
+              ]}
+            />
+          )}
         </View>
       </TapGestureHandler>
 
       {/* Combined action bar with bread button (left) and date (right) */}
       <View style={styles.actionBar}>
         <View style={styles.leftActions}>
-          <BreadButton postId={post.id} hasUserBited={hasUserBited} onPress={onBitePress} />
+          <BreadButton postId={post.id} hasUserBited={hasUserBited} onPress={onBitePress} theme={theme} />
         </View>
         <View style={styles.rightActions}>
           <Text style={styles.postDate}>
@@ -167,9 +251,9 @@ export const DetailPost = memo(({
   );
 });
 
-const styles = StyleSheet.create({
+const getStyles = (theme) => StyleSheet.create({
   postContainer: {
-    backgroundColor: '#fff',
+    backgroundColor: theme.surface,
     marginBottom: 10
   },
   postHeader: {
@@ -195,10 +279,11 @@ const styles = StyleSheet.create({
   },
   username: {
     fontWeight: '600',
-    fontSize: 14
+    fontSize: 14,
+    color: theme.accent
   },
   usernameSeparator: {
-    color: '#666',
+    color: theme.textSecondary,
     marginHorizontal: 4
   },
   optionsButton: {
@@ -207,12 +292,12 @@ const styles = StyleSheet.create({
   imageGalleryContainer: {
     width: WINDOW_WIDTH,
     aspectRatio: 1,
-    backgroundColor: '#f5f5f5'
+    backgroundColor: theme.surfaceSecondary
   },
   postImage: {
     width: WINDOW_WIDTH,
     aspectRatio: 1,
-    backgroundColor: '#f5f5f5'
+    backgroundColor: theme.surfaceSecondary
   },
   paginationDots: {
     position: 'absolute',
@@ -263,18 +348,20 @@ const styles = StyleSheet.create({
   },
   biteCountText: {
     fontWeight: '600',
-    fontSize: 14
+    fontSize: 14,
+    color: theme.text
   },
   postFooter: {
     padding: 12
   },
   caption: {
     fontSize: 14,
-    marginBottom: 4
+    marginBottom: 4,
+    color: theme.text
   },
   postDate: {
     fontSize: 12,
-    color: '#666',
+    color: theme.textSecondary,
     marginTop: -20
   },
   gridItem: {
@@ -285,7 +372,7 @@ const styles = StyleSheet.create({
   gridImage: {
     width: '100%',
     height: '100%',
-    backgroundColor: '#f5f5f5'
+    backgroundColor: theme.surfaceSecondary
   },
   coOwnedBadge: {
     position: 'absolute',
@@ -337,7 +424,15 @@ const styles = StyleSheet.create({
   },
   locationText: {
     fontSize: 12,
-    color: '#666',
+    color: theme.textSecondary,
     marginLeft: 4
+  },
+  biteAnimation: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    width: 450,
+    height: 450,
+    opacity: 0.5,
   }
 }); 

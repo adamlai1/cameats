@@ -1,9 +1,11 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, Dimensions, StyleSheet, View } from 'react-native';
+import { useTheme } from '../../contexts/ThemeContext';
 
 const WINDOW_WIDTH = Dimensions.get('window').width;
 
 export const PostSkeleton = () => {
+  const { theme } = useTheme();
   const shimmerAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -30,6 +32,8 @@ export const PostSkeleton = () => {
     inputRange: [0, 1],
     outputRange: [-WINDOW_WIDTH, WINDOW_WIDTH],
   });
+
+  const styles = getStyles(theme);
 
   return (
     <View style={styles.container}>
@@ -91,9 +95,9 @@ export const PostSkeleton = () => {
   );
 };
 
-const styles = StyleSheet.create({
+const getStyles = (theme) => StyleSheet.create({
   container: {
-    backgroundColor: '#fff',
+    backgroundColor: theme.background,
     marginBottom: 8,
   },
   header: {
@@ -105,21 +109,21 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#E1E9EE',
+    backgroundColor: theme.border,
     overflow: 'hidden',
   },
   usernameSkeleton: {
     width: 100,
     height: 14,
     borderRadius: 4,
-    backgroundColor: '#E1E9EE',
+    backgroundColor: theme.border,
     marginLeft: 12,
     overflow: 'hidden',
   },
   imageSkeleton: {
     width: WINDOW_WIDTH,
     aspectRatio: 1,
-    backgroundColor: '#E1E9EE',
+    backgroundColor: theme.border,
     overflow: 'hidden',
   },
   actionsSkeleton: {
@@ -129,7 +133,7 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 19,
-    backgroundColor: '#E1E9EE',
+    backgroundColor: theme.border,
     overflow: 'hidden',
   },
   captionSkeleton: {
@@ -139,14 +143,14 @@ const styles = StyleSheet.create({
   captionLine: {
     height: 10,
     borderRadius: 4,
-    backgroundColor: '#E1E9EE',
+    backgroundColor: theme.border,
     marginBottom: 6,
     overflow: 'hidden',
   },
   shimmer: {
     width: '100%',
     height: '100%',
-    backgroundColor: '#F2F8FC',
+    backgroundColor: theme.isDark ? '#404040' : '#F2F8FC',
     opacity: 0.5,
   },
 }); 

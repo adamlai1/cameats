@@ -7,6 +7,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
+    Animated,
     Dimensions,
     FlatList,
     Image,
@@ -20,14 +21,14 @@ import {
     View
 } from 'react-native';
 import { State, TapGestureHandler } from 'react-native-gesture-handler';
-import * as Progress from 'react-native-progress';
 import { auth, db, storage } from '../firebase';
 import { useTheme } from './contexts/ThemeContext';
 import { handleDeletePost as deletePostUtil } from './utils/postOptionsUtils';
 
-// Import bread slice images and preload them
+// Import bread slice images and bite animation
 const breadNormal = require('../assets/images/bread-normal.png');
 const breadBitten = require('../assets/images/bread-bitten.png');
+const biteAnimationImage = require('../assets/images/bite-animation.png');
 
 const WINDOW_WIDTH = Dimensions.get('window').width;
 
@@ -52,8 +53,9 @@ export default function ProfilePostsView() {
   const router = useRouter();
   const { postIds: postIdsParam, initialIndex, username } = useLocalSearchParams();
   const [posts, setPosts] = useState([]);
-  const [currentImageIndices, setCurrentImageIndices] = useState({});
   const [loading, setLoading] = useState(true);
+  const [currentImageIndices, setCurrentImageIndices] = useState({});
+  const [biteAnimations, setBiteAnimations] = useState({});
   const [selectedPost, setSelectedPost] = useState(null);
   const [showPostOptions, setShowPostOptions] = useState(false);
   const [editingCaption, setEditingCaption] = useState(false);
@@ -146,12 +148,41 @@ export default function ProfilePostsView() {
 
   const handleImageScroll = (event, postId) => {
     const contentOffset = event.nativeEvent.contentOffset.x;
-    const index = Math.round(contentOffset / WINDOW_WIDTH);
+    const imageIndex = Math.round(contentOffset / WINDOW_WIDTH);
     setCurrentImageIndices(prev => ({
       ...prev,
-      [postId]: index
+      [postId]: imageIndex
     }));
   };
+
+  const triggerBiteAnimation = useCallback((postId) => {
+    // Create new animated value for this post - start visible immediately
+    const animatedValue = new Animated.Value(1);
+    
+    setBiteAnimations(prev => ({
+      ...prev,
+      [postId]: animatedValue
+    }));
+
+    // Start animation sequence
+    Animated.sequence([
+      // Hold for 2 seconds (visible immediately)
+      Animated.delay(2000),
+      // Fade out
+      Animated.timing(animatedValue, {
+        toValue: 0,
+        duration: 500,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      // Clean up animation after completion
+      setBiteAnimations(prev => {
+        const newAnimations = { ...prev };
+        delete newAnimations[postId];
+        return newAnimations;
+      });
+    });
+  }, []);
 
   const handleUsernamePress = (ownerId) => {
     if (ownerId === auth.currentUser.uid) return; // Don't navigate if clicking own profile
@@ -191,6 +222,9 @@ export default function ProfilePostsView() {
           bitedBy: currentBitedBy.filter(id => id !== userId)
         };
       } else {
+        // Trigger bite animation when ADDING a bite
+        triggerBiteAnimation(postId);
+        
         return {
           ...post,
           bites: (post.bites || 0) + 1,
@@ -255,6 +289,9 @@ export default function ProfilePostsView() {
       
       if (hasUserBited) return post;
       
+      // Trigger bite animation
+      triggerBiteAnimation(postId);
+      
       return {
         ...post,
         bites: (post.bites || 0) + 1,
@@ -284,7 +321,7 @@ export default function ProfilePostsView() {
     };
     
     updateFirebase();
-  }, [updatePostOptimistic]);
+  }, [updatePostOptimistic, triggerBiteAnimation]);
 
   const handlePostOptionsPress = (post) => {
     setSelectedPost(post);
@@ -653,6 +690,19 @@ export default function ProfilePostsView() {
                 ))}
               </View>
             )}
+            
+            {/* Bite Animation */}
+            {biteAnimations[item.id] && (
+              <Animated.Image
+                source={biteAnimationImage}
+                style={[
+                  styles.biteAnimation,
+                  {
+                    opacity: biteAnimations[item.id],
+                  },
+                ]}
+              />
+            )}
           </View>
         </TapGestureHandler>
 
@@ -977,14 +1027,10 @@ export default function ProfilePostsView() {
 
           {uploading && (
             <View style={styles.progressContainer}>
-              <Progress.Bar 
-                progress={uploadProgress} 
-                width={200} 
-                color="#007AFF"
-              />
               <Text style={styles.progressText}>
-                {Math.round(uploadProgress * 100)}%
+                Uploading... {Math.round(uploadProgress)}%
               </Text>
+              <ActivityIndicator size="large" color={theme.accent} />
             </View>
           )}
         </View>
@@ -1039,7 +1085,7 @@ export default function ProfilePostsView() {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#1976d2" />
+          <ActivityIndicator size="large" color={theme.accent} />
         </View>
       </SafeAreaView>
     );
@@ -1158,12 +1204,12 @@ const getStyles = (theme) => StyleSheet.create({
     width: '100%',
     aspectRatio: 1,
     position: 'relative',
-    backgroundColor: '#f5f5f5'
+    backgroundColor: theme.surfaceSecondary
   },
   postImage: {
     width: WINDOW_WIDTH,
     aspectRatio: 1,
-    backgroundColor: '#f5f5f5'
+    backgroundColor: theme.surfaceSecondary
   },
   paginationDots: {
     position: 'absolute',
@@ -1490,5 +1536,13 @@ const getStyles = (theme) => StyleSheet.create({
     fontSize: 12,
     color: theme.textSecondary,
     marginLeft: 4
-  }
+  },
+  biteAnimation: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    width: 450,
+    height: 450,
+    opacity: 0.5,
+  },
 }); 
