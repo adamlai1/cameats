@@ -35,9 +35,7 @@ const breadNormal = require('../../assets/images/bread-normal.png');
 const breadBitten = require('../../assets/images/bread-bitten.png');
 const biteAnimation = require('../../assets/images/bite-animation.png');
 
-// Preload images on app start
-Image.prefetch(Image.resolveAssetSource(breadNormal).uri);
-Image.prefetch(Image.resolveAssetSource(breadBitten).uri);
+// Images are now preloaded in _layout.js to avoid redundant prefetching
 
 const WINDOW_WIDTH = Dimensions.get('window').width;
 const POST_WIDTH = WINDOW_WIDTH / 3;

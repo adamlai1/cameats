@@ -9,6 +9,7 @@ import {
   Dimensions,
   FlatList,
   Image,
+  InteractionManager,
   RefreshControl,
   SafeAreaView,
   ScrollView,
@@ -35,9 +36,7 @@ const breadNormal = require('../../assets/images/bread-normal.png');
 const breadBitten = require('../../assets/images/bread-bitten.png');
 const biteAnimationImage = require('../../assets/images/bite-animation.png');
 
-// Preload images on app start
-Image.prefetch(Image.resolveAssetSource(breadNormal).uri);
-Image.prefetch(Image.resolveAssetSource(breadBitten).uri);
+// Images are now preloaded in _layout.js to avoid redundant prefetching
 
 // Define styles function before component
 const getStyles = (theme) => StyleSheet.create({
@@ -342,23 +341,39 @@ const FeedScreen = forwardRef((props, ref) => {
     try {
       const newPosts = await postService.fetchPosts(null, lastPost, POSTS_PER_PAGE);
       
-      // Pre-fetch images for smoother loading
-      newPosts.forEach(post => {
-        // Pre-fetch post images
-        if (post.imageUrls) {
-          post.imageUrls.forEach(url => Image.prefetch(url));
-        } else if (post.imageUrl) {
-          Image.prefetch(post.imageUrl);
-        }
+      // Instagram-style intelligent preloading
+      InteractionManager.runAfterInteractions(() => {
+        // Immediately preload first 2 post images for instant display
+        const priorityPosts = newPosts.slice(0, 2);
+        priorityPosts.forEach(post => {
+          if (post.imageUrls?.[0]) {
+            Image.prefetch(post.imageUrls[0]).catch(() => {});
+          } else if (post.imageUrl) {
+            Image.prefetch(post.imageUrl).catch(() => {});
+          }
+        });
 
-        // Pre-fetch user profile pictures
-        if (post.postOwners) {
-          post.postOwners.forEach(owner => {
-            if (owner.profilePicUrl) {
-              Image.prefetch(owner.profilePicUrl);
+        // Delay preload remaining images to avoid blocking
+        setTimeout(() => {
+          const remainingPosts = newPosts.slice(2);
+          remainingPosts.forEach(post => {
+            // Pre-fetch post images in background
+            if (post.imageUrls) {
+              post.imageUrls.forEach(url => Image.prefetch(url).catch(() => {}));
+            } else if (post.imageUrl) {
+              Image.prefetch(post.imageUrl).catch(() => {});
+            }
+
+            // Pre-fetch user profile pictures in background
+            if (post.postOwners) {
+              post.postOwners.forEach(owner => {
+                if (owner.profilePicUrl) {
+                  Image.prefetch(owner.profilePicUrl).catch(() => {});
+                }
+              });
             }
           });
-        }
+        }, 1000);
       });
 
       // Update pagination state
@@ -398,7 +413,12 @@ const FeedScreen = forwardRef((props, ref) => {
   };
 
   useEffect(() => {
-    loadInitialPosts();
+    // Defer initial loading until after the component is mounted and UI is responsive
+    InteractionManager.runAfterInteractions(() => {
+      setTimeout(() => {
+        loadInitialPosts();
+      }, 100); // Small delay to ensure smooth startup
+    });
   }, []);
 
   const updatePostOptimistic = useCallback((postId, updateFn) => {
@@ -476,6 +496,9 @@ const FeedScreen = forwardRef((props, ref) => {
   }, []);
 
   const triggerBiteAnimation = useCallback(async (postId) => {
+    // Early return if animation system isn't ready
+    if (!getCatPosition || !postImageRefs.current) return;
+
     // First, find the post to get its image position
     const post = posts.find(p => p.id === postId);
     if (!post) return;
@@ -489,92 +512,143 @@ const FeedScreen = forwardRef((props, ref) => {
       return;
     }
 
-    // Get both post image and cat positions
-    const [imagePosition, catPosition] = await Promise.all([
-      new Promise(resolve => {
-        imageRef.measureInWindow((x, y, width, height) => {
-          resolve({ x, y, width, height });
-        });
-      }),
-      getCatPosition()
-    ]);
-
-    // Calculate starting position (top-right area of the image, but keep it on screen)
+    // IMMEDIATELY show the bite mark with estimated position
     const biteMarkSize = 450;
-    const startX = Math.min(
-      imagePosition.x + imagePosition.width - 50, // Start near right edge of image
-      WINDOW_WIDTH - biteMarkSize // But don't go off screen
-    );
-    const startY = imagePosition.y;
+    const estimatedStartX = Math.min(WINDOW_WIDTH - 100, WINDOW_WIDTH - biteMarkSize);
+    const estimatedStartY = 100; // Rough estimate for header height
 
-    // Create animated values for this post
-    const animatedOpacity = new Animated.Value(0.8); // Start visible immediately
-    const animatedX = new Animated.Value(0); // Start at 0, will translate from static position
-    const animatedY = new Animated.Value(0); // Start at 0, will translate from static position
-    const animatedScale = new Animated.Value(1);
-    
+    // Create animated values and show immediately
     const animationObject = {
-      opacity: animatedOpacity,
-      translateX: animatedX,
-      translateY: animatedY,
-      scale: animatedScale,
-      startX: startX, // Measured starting X position
-      startY: startY, // Measured starting Y position
+      opacity: new Animated.Value(0.8), // Start visible immediately
+      translateX: new Animated.Value(0),
+      translateY: new Animated.Value(0),
+      scale: new Animated.Value(1),
+      startX: estimatedStartX,
+      startY: estimatedStartY,
     };
     
+    // Show the bite mark immediately
     setBiteAnimations(prev => ({
       ...prev,
       [postId]: animationObject
     }));
 
-    // Wait a moment for the component to render and ref to be set
-    await new Promise(resolve => setTimeout(resolve, 100));
+    // Calculate actual positions in the background while bite mark is visible
+    try {
+      const [imagePosition, catPosition] = await Promise.race([
+        Promise.all([
+          new Promise(resolve => {
+            imageRef.measureInWindow((x, y, width, height) => {
+              resolve({ x, y, width, height });
+            });
+          }),
+          getCatPosition()
+        ]),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 500))
+      ]);
 
-    // Calculate trajectory from starting position to cat (relative movement)
-    const targetX = catPosition.x - (startX + biteMarkSize / 2); // Relative movement needed (center of bite mark to cat)
-    const targetY = (catPosition.y + 5) - (startY + biteMarkSize / 2); // Aim slightly below cat center (mouth area)
+      // Update position if we got accurate measurements
+      const actualStartX = Math.min(
+        imagePosition.x + imagePosition.width - 50,
+        WINDOW_WIDTH - biteMarkSize
+      );
+      const actualStartY = imagePosition.y;
 
-    // Start animation sequence
-    Animated.sequence([
-      // Linger for 1 second at starting position (visible immediately)
-      Animated.delay(1000),
-      // Move towards cat's mouth while fading and shrinking
-      Animated.parallel([
-        Animated.timing(animatedOpacity, {
-          toValue: 0.3, // Fade to more transparent
-          duration: 800,
-          useNativeDriver: true,
-        }),
-        Animated.timing(animatedX, {
-          toValue: targetX, // Move to cat X position
-          duration: 800,
-          useNativeDriver: true,
-        }),
-        Animated.timing(animatedY, {
-          toValue: targetY, // Move to cat Y position
-          duration: 800,
-          useNativeDriver: true,
-        }),
-        Animated.timing(animatedScale, {
-          toValue: 0.02, // Shrink to almost nothing
-          duration: 800,
-          useNativeDriver: true,
-        }),
-      ]),
-      // Final fade out
-      Animated.timing(animatedOpacity, {
-        toValue: 0,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-    ]).start(() => {
-      // Clean up animation after completion
-      setBiteAnimations(prev => {
-        const newAnimations = { ...prev };
-        delete newAnimations[postId];
-        return newAnimations;
-      });
-    });
+      // Update the animation object with accurate positions
+      animationObject.startX = actualStartX;
+      animationObject.startY = actualStartY;
+
+      // Calculate trajectory from actual starting position to cat
+      const targetX = catPosition.x - (actualStartX + biteMarkSize / 2);
+      const targetY = (catPosition.y + 5) - (actualStartY + biteMarkSize / 2);
+
+      // Start the movement animation after the linger period
+      setTimeout(() => {
+        Animated.parallel([
+          Animated.timing(animationObject.opacity, {
+            toValue: 0.3,
+            duration: 800,
+            useNativeDriver: true,
+          }),
+          Animated.timing(animationObject.translateX, {
+            toValue: targetX,
+            duration: 800,
+            useNativeDriver: true,
+          }),
+          Animated.timing(animationObject.translateY, {
+            toValue: targetY,
+            duration: 800,
+            useNativeDriver: true,
+          }),
+          Animated.timing(animationObject.scale, {
+            toValue: 0.02,
+            duration: 800,
+            useNativeDriver: true,
+          }),
+        ]).start(() => {
+          // Final fade out
+          Animated.timing(animationObject.opacity, {
+            toValue: 0,
+            duration: 200,
+            useNativeDriver: true,
+          }).start(() => {
+            // Clean up animation after completion
+            setBiteAnimations(prev => {
+              const newAnimations = { ...prev };
+              delete newAnimations[postId];
+              return newAnimations;
+            });
+          });
+        });
+      }, 1000); // Linger for 1 second
+
+    } catch (error) {
+      // If position calculation fails, still do the animation with estimated positions
+      console.warn('Position calculation failed, using estimates:', error);
+      
+      // Use estimated target (center-ish of screen for cat)
+      const estimatedTargetX = (WINDOW_WIDTH / 2) - (estimatedStartX + biteMarkSize / 2);
+      const estimatedTargetY = 50 - (estimatedStartY + biteMarkSize / 2);
+
+      setTimeout(() => {
+        Animated.parallel([
+          Animated.timing(animationObject.opacity, {
+            toValue: 0.3,
+            duration: 800,
+            useNativeDriver: true,
+          }),
+          Animated.timing(animationObject.translateX, {
+            toValue: estimatedTargetX,
+            duration: 800,
+            useNativeDriver: true,
+          }),
+          Animated.timing(animationObject.translateY, {
+            toValue: estimatedTargetY,
+            duration: 800,
+            useNativeDriver: true,
+          }),
+          Animated.timing(animationObject.scale, {
+            toValue: 0.02,
+            duration: 800,
+            useNativeDriver: true,
+          }),
+        ]).start(() => {
+          // Final fade out
+          Animated.timing(animationObject.opacity, {
+            toValue: 0,
+            duration: 200,
+            useNativeDriver: true,
+          }).start(() => {
+            // Clean up animation after completion
+            setBiteAnimations(prev => {
+              const newAnimations = { ...prev };
+              delete newAnimations[postId];
+              return newAnimations;
+            });
+          });
+        });
+      }, 1000); // Linger for 1 second
+    }
   }, [getCatPosition, posts, currentImageIndices]);
 
   const onRefresh = async () => {
