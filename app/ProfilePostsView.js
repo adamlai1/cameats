@@ -22,6 +22,7 @@ import {
 } from 'react-native';
 import { State, TapGestureHandler } from 'react-native-gesture-handler';
 import { auth, db, storage } from '../firebase';
+import PostManagement from './components/PostManagement';
 import { useTheme } from './contexts/ThemeContext';
 import { handleDeletePost as deletePostUtil } from './utils/postOptionsUtils';
 
@@ -58,19 +59,7 @@ export default function ProfilePostsView() {
   const [biteAnimations, setBiteAnimations] = useState({});
   const [selectedPost, setSelectedPost] = useState(null);
   const [showPostOptions, setShowPostOptions] = useState(false);
-  const [editingCaption, setEditingCaption] = useState(false);
-  const [newCaption, setNewCaption] = useState('');
-  const [showAddCoOwners, setShowAddCoOwners] = useState(false);
-  const [searchUsername, setSearchUsername] = useState('');
-  const [searchResults, setSearchResults] = useState([]);
-  const [selectedFriends, setSelectedFriends] = useState([]);
-  const [searching, setSearching] = useState(false);
-  const [friendsList, setFriendsList] = useState([]);
-  const [selectedImages, setSelectedImages] = useState([]);
-  const [showAddPhotos, setShowAddPhotos] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [showManagePhotos, setShowManagePhotos] = useState(false);
+
 
   const fetchPostsData = async () => {
     try {
@@ -325,23 +314,13 @@ export default function ProfilePostsView() {
 
   const handlePostOptionsPress = (post) => {
     setSelectedPost(post);
-    setNewCaption(post.caption || '');
     setShowPostOptions(true);
   };
 
-  const handleEditCaption = async () => {
-    if (!selectedPost) return;
-    setShowPostOptions(false);
-    setEditingCaption(true);
-  };
-
-  const handleAddCoOwners = () => {
-    setShowPostOptions(false);
-    setShowAddCoOwners(true);
-    setSearchUsername('');
-    setSearchResults([]);
-    setSelectedFriends([]);
-    fetchFriendsList();
+  const handleUpdatePost = (updatedPost) => {
+    setPosts(prevPosts => prevPosts.map(post => 
+      post.id === updatedPost.id ? updatedPost : post
+    ));
   };
 
   const handleSearch = (text) => {
@@ -742,131 +721,9 @@ export default function ProfilePostsView() {
     );
   };
 
-  const renderPostOptionsModal = () => (
-    <Modal
-      animationType="fade"
-      transparent={true}
-      visible={showPostOptions}
-      onRequestClose={() => setShowPostOptions(false)}
-    >
-      <TouchableOpacity 
-        style={styles.modalOverlay} 
-        activeOpacity={1} 
-        onPress={() => setShowPostOptions(false)}
-      >
-        <View style={styles.optionsModalContent}>
-          <TouchableOpacity 
-            style={styles.optionItem}
-            onPress={() => {
-              setShowPostOptions(false);
-              setShowAddPhotos(true);
-            }}
-          >
-            <Text style={styles.optionText}>Add More Photos</Text>
-          </TouchableOpacity>
 
-          <TouchableOpacity 
-            style={styles.optionItem}
-            onPress={() => {
-              setShowPostOptions(false);
-              setShowManagePhotos(true);
-            }}
-          >
-            <Text style={styles.optionText}>Manage Photos</Text>
-          </TouchableOpacity>
 
-          <TouchableOpacity 
-            style={styles.optionItem}
-            onPress={() => {
-              setShowPostOptions(false);
-              setEditingCaption(true);
-              setNewCaption(selectedPost?.caption || '');
-            }}
-          >
-            <Text style={styles.optionText}>Edit Caption</Text>
-          </TouchableOpacity>
 
-          <TouchableOpacity 
-            style={styles.optionItem}
-            onPress={() => {
-              setShowPostOptions(false);
-              setShowAddCoOwners(true);
-              fetchFriendsList();
-            }}
-          >
-            <Text style={styles.optionText}>Add Co-owners</Text>
-          </TouchableOpacity>
-          
-          {selectedPost?.userId === auth.currentUser.uid && (
-            <TouchableOpacity 
-              style={[styles.optionItem, styles.deleteOption]} 
-              onPress={() => {
-                setShowPostOptions(false);
-                handleDeletePost(selectedPost);
-              }}
-            >
-              <Text style={styles.deleteOptionText}>Delete Post</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-      </TouchableOpacity>
-    </Modal>
-  );
-
-  const renderEditCaptionModal = () => (
-    <Modal
-      animationType="fade"
-      transparent={true}
-      visible={editingCaption}
-      onRequestClose={() => setEditingCaption(false)}
-    >
-      <View style={styles.modalContainer}>
-        <View style={styles.modalContent}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Edit Caption</Text>
-            <TouchableOpacity onPress={() => setEditingCaption(false)}>
-              <Ionicons name="close" size={24} color={theme.text} />
-            </TouchableOpacity>
-          </View>
-
-          <TextInput
-            style={styles.captionInput}
-            value={newCaption}
-            onChangeText={setNewCaption}
-            placeholder="Write a caption..."
-            placeholderTextColor={theme.textSecondary}
-            multiline
-            maxLength={2200}
-          />
-
-          <TouchableOpacity
-            style={styles.saveButton}
-            onPress={async () => {
-              if (!selectedPost) return;
-              try {
-                await updateDoc(doc(db, 'posts', selectedPost.id), {
-                  caption: newCaption
-                });
-                // Update local state
-                setPosts(prevPosts => prevPosts.map(post => 
-                  post.id === selectedPost.id 
-                    ? { ...post, caption: newCaption }
-                    : post
-                ));
-                setEditingCaption(false);
-                Alert.alert('Success', 'Caption updated successfully!');
-              } catch (error) {
-                console.error('Error updating caption:', error);
-                Alert.alert('Error', 'Failed to update caption');
-              }
-            }}
-          >
-            <Text style={styles.saveButtonText}>Save Changes</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    </Modal>
-  );
 
   const renderAddCoOwnersModal = () => (
     <Modal
@@ -1121,11 +978,17 @@ export default function ProfilePostsView() {
           index,
         })}
       />
-      {renderPostOptionsModal()}
-      {renderEditCaptionModal()}
-      {renderAddCoOwnersModal()}
-      {renderAddPhotosModal()}
-      {renderManagePhotosModal()}
+      <PostManagement
+        selectedPost={selectedPost}
+        onClose={() => {
+          setSelectedPost(null);
+          setShowPostOptions(false);
+        }}
+        onUpdatePost={handleUpdatePost}
+        showPostOptions={showPostOptions}
+        setShowPostOptions={setShowPostOptions}
+        onDeletePost={handleDeletePost}
+      />
     </SafeAreaView>
   );
 }

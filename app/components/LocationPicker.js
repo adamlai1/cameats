@@ -408,6 +408,7 @@ const LocationPicker = ({ onLocationSelect, initialLocation = null }) => {
           <TextInput
             style={styles.searchInput}
             placeholder="Search for restaurants or enter custom location"
+            placeholderTextColor={theme.textSecondary}
             value={searchQuery}
             onChangeText={(text) => {
               setSearchQuery(text);
@@ -415,6 +416,12 @@ const LocationPicker = ({ onLocationSelect, initialLocation = null }) => {
               searchTimeoutRef.current = setTimeout(() => searchRestaurants(text), 500);
             }}
             onSubmitEditing={() => searchRestaurants(searchQuery)}
+            returnKeyType="search"
+            autoCorrect={false}
+            autoCapitalize="none"
+            accessible={true}
+            accessibilityLabel="Search for restaurants"
+            accessibilityHint="Type to search for restaurants or enter a custom location"
           />
           {searchQuery.length > 0 && (
             <TouchableOpacity
@@ -509,6 +516,9 @@ const getStyles = (theme) => StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: theme.border,
+    minHeight: 44,
   },
   searchIcon: {
     marginRight: 8,
@@ -517,6 +527,9 @@ const getStyles = (theme) => StyleSheet.create({
     flex: 1,
     fontSize: 16,
     color: theme.text,
+    minHeight: 40,
+    paddingVertical: 8,
+    zIndex: 1,
   },
   clearButton: {
     padding: 4,

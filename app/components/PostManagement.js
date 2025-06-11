@@ -16,7 +16,10 @@ import {
     Alert,
     Dimensions,
     Image,
+    KeyboardAvoidingView,
     Modal,
+    Platform,
+    SafeAreaView,
     ScrollView,
     StyleSheet,
     Text,
@@ -390,83 +393,164 @@ export default function PostManagement({
     }
   };
 
-  const renderPostOptionsModal = () => (
-    <Modal
-      animationType="fade"
-      transparent={true}
-      visible={showPostOptions}
-      onRequestClose={() => setShowPostOptions(false)}
-    >
-      <TouchableOpacity 
-        style={styles.modalOverlay}
-        activeOpacity={1}
-        onPress={() => setShowPostOptions(false)}
+  const handleRemoveMeAsCoOwner = async () => {
+    if (!selectedPost) return;
+    
+    const currentUserId = auth.currentUser.uid;
+    
+    // Check if user is actually a co-owner (not the original creator)
+    if (selectedPost.userId === currentUserId) {
+      Alert.alert('Cannot Remove', 'You are the original creator of this post and cannot remove yourself.');
+      return;
+    }
+    
+    // Check if user is in the owners list
+    const isCoOwner = selectedPost.owners?.some(owner => owner.id === currentUserId) || 
+                      selectedPost.postOwners?.includes(currentUserId);
+    
+    if (!isCoOwner) {
+      Alert.alert('Error', 'You are not a co-owner of this post.');
+      return;
+    }
+    
+    Alert.alert(
+      'Remove Yourself as Co-owner',
+      'Are you sure you want to remove yourself as a co-owner of this post?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel'
+        },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const postRef = doc(db, 'posts', selectedPost.id);
+              
+              // Remove current user from owners and postOwners arrays
+              const updatedOwners = selectedPost.owners?.filter(owner => owner.id !== currentUserId) || [];
+              const updatedPostOwners = selectedPost.postOwners?.filter(ownerId => ownerId !== currentUserId) || [];
+              
+              // Update Firestore
+              await updateDoc(postRef, {
+                owners: updatedOwners,
+                postOwners: updatedPostOwners
+              });
+              
+              onUpdatePost({
+                ...selectedPost,
+                owners: updatedOwners,
+                postOwners: updatedPostOwners
+              });
+              
+              setShowPostOptions(false);
+              Alert.alert('Success', 'You have been removed as a co-owner of this post.');
+            } catch (error) {
+              console.error('Error removing co-owner:', error);
+              Alert.alert('Error', 'Failed to remove yourself as co-owner');
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const renderPostOptionsModal = () => {
+    const currentUserId = auth.currentUser.uid;
+    const isOriginalCreator = selectedPost?.userId === currentUserId;
+    const isCoOwner = selectedPost?.owners?.some(owner => owner.id === currentUserId) || 
+                      selectedPost?.postOwners?.includes(currentUserId);
+    const canRemoveAsCoOwner = isCoOwner && !isOriginalCreator;
+
+    return (
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={showPostOptions}
+        onRequestClose={() => setShowPostOptions(false)}
       >
-        <View style={styles.optionsModalContent}>
-          <TouchableOpacity 
-            style={styles.optionItem}
-            onPress={() => {
-              setShowPostOptions(false);
-              setShowAddPhotos(true);
-            }}
-          >
-            <Text style={styles.optionText}>Add More Photos</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity 
-            style={styles.optionItem}
-            onPress={() => {
-              setShowPostOptions(false);
-              setShowManagePhotos(true);
-            }}
-          >
-            <Text style={styles.optionText}>Manage Photos</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity 
-            style={styles.optionItem}
-            onPress={() => {
-              setShowPostOptions(false);
-              setEditingCaption(true);
-              setNewCaption(selectedPost?.caption || '');
-            }}
-          >
-            <Text style={styles.optionText}>Edit Caption</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity 
-            style={styles.optionItem}
-            onPress={() => {
-              setShowPostOptions(false);
-              setShowAddCoOwners(true);
-              fetchFriendsList();
-            }}
-          >
-            <Text style={styles.optionText}>Add Co-owners</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity 
-            style={styles.optionItem}
-            onPress={handleEditLocation}
-          >
-            <Text style={styles.optionText}>Change Location</Text>
-          </TouchableOpacity>
-          
-          {selectedPost?.userId === auth.currentUser.uid && (
+        <TouchableOpacity 
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowPostOptions(false)}
+        >
+          <View style={styles.optionsModalContent}>
             <TouchableOpacity 
-              style={[styles.optionItem, styles.deleteOption]} 
+              style={styles.optionItem}
               onPress={() => {
                 setShowPostOptions(false);
-                onDeletePost(selectedPost);
+                setShowAddPhotos(true);
               }}
             >
-              <Text style={styles.deleteOptionText}>Delete Post</Text>
+              <Text style={styles.optionText}>Add More Photos</Text>
             </TouchableOpacity>
-          )}
-        </View>
-      </TouchableOpacity>
-    </Modal>
-  );
+
+            <TouchableOpacity 
+              style={styles.optionItem}
+              onPress={() => {
+                setShowPostOptions(false);
+                setShowManagePhotos(true);
+              }}
+            >
+              <Text style={styles.optionText}>Manage Photos</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.optionItem}
+              onPress={() => {
+                setShowPostOptions(false);
+                setEditingCaption(true);
+                setNewCaption(selectedPost?.caption || '');
+              }}
+            >
+              <Text style={styles.optionText}>Edit Caption</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.optionItem}
+              onPress={() => {
+                setShowPostOptions(false);
+                setShowAddCoOwners(true);
+                fetchFriendsList();
+              }}
+            >
+              <Text style={styles.optionText}>Add Co-owners</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.optionItem}
+              onPress={handleEditLocation}
+            >
+              <Text style={styles.optionText}>Change Location</Text>
+            </TouchableOpacity>
+
+            {canRemoveAsCoOwner && (
+              <TouchableOpacity 
+                style={[styles.optionItem, styles.destructiveOption]}
+                onPress={() => {
+                  setShowPostOptions(false);
+                  handleRemoveMeAsCoOwner();
+                }}
+              >
+                <Text style={[styles.optionText, styles.destructiveText]}>Remove Me as Co-owner</Text>
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity 
+              style={[styles.optionItem, styles.destructiveOption]}
+              onPress={() => {
+                setShowPostOptions(false);
+                onDeletePost && onDeletePost(selectedPost);
+              }}
+            >
+              <Text style={[styles.optionText, styles.destructiveText]}>Delete Post</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+    );
+  };
 
   const renderEditCaptionModal = () => (
     <Modal
@@ -760,56 +844,94 @@ export default function PostManagement({
 
   const renderEditLocationModal = () => (
     <Modal
-      animationType="fade"
-      transparent={true}
+      animationType="slide"
+      transparent={false}
       visible={showEditLocation}
       onRequestClose={() => setShowEditLocation(false)}
     >
-      <View style={styles.modalContainer}>
-        <View style={[styles.modalContent, { maxHeight: '85%' }]}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Change Location</Text>
-            <TouchableOpacity onPress={() => setShowEditLocation(false)}>
-              <Ionicons name="close" size={24} color="black" />
+      <SafeAreaView style={styles.safeAreaView}>
+        <KeyboardAvoidingView 
+          style={styles.keyboardAvoidingView}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          <View style={styles.locationModalContainer}>
+          {/* Header */}
+          <View style={styles.locationModalHeader}>
+            <TouchableOpacity 
+              onPress={() => setShowEditLocation(false)}
+              style={styles.headerButton}
+            >
+              <Ionicons name="chevron-back" size={24} color={theme.text} />
+              <Text style={styles.headerButtonText}>Cancel</Text>
             </TouchableOpacity>
+            
+            <Text style={styles.locationModalTitle}>Change Location</Text>
+            
+            {selectedLocation && (
+              <TouchableOpacity
+                style={styles.headerButton}
+                onPress={() => handleSaveLocation(selectedLocation)}
+              >
+                <Text style={[styles.headerButtonText, styles.saveHeaderText]}>
+                  {selectedPost?.location ? 'Update' : 'Add'}
+                </Text>
+              </TouchableOpacity>
+            )}
+            
+            {!selectedLocation && <View style={styles.headerButton} />}
           </View>
 
+          {/* Current Location Section */}
           {selectedPost?.location && (
-            <View style={styles.currentLocationContainer}>
-              <Text style={styles.currentLocationLabel}>Current Location:</Text>
-              <View style={styles.currentLocationInfo}>
-                <Ionicons name="location" size={16} color="#666" />
-                <Text style={styles.currentLocationText}>{selectedPost.location.name}</Text>
+            <View style={styles.currentLocationSection}>
+              <View style={styles.currentLocationCard}>
+                <View style={styles.currentLocationHeader}>
+                  <Ionicons name="location" size={20} color="#007AFF" />
+                  <Text style={styles.currentLocationTitle}>Current Location</Text>
+                </View>
+                <Text style={styles.currentLocationName}>{selectedPost.location.name}</Text>
+                <TouchableOpacity 
+                  style={styles.removeLocationButton}
+                  onPress={handleRemoveLocation}
+                >
+                  <Ionicons name="trash-outline" size={16} color="#ff3b30" />
+                  <Text style={styles.removeLocationText}>Remove Location</Text>
+                </TouchableOpacity>
               </View>
-              <TouchableOpacity 
-                style={styles.removeLocationButton}
-                onPress={handleRemoveLocation}
-              >
-                <Ionicons name="trash-outline" size={16} color="#ff3b30" />
-                <Text style={styles.removeLocationText}>Remove Location</Text>
-              </TouchableOpacity>
             </View>
           )}
 
-          <View style={styles.locationPickerContainer}>
-            <LocationPicker
-              onLocationSelect={setSelectedLocation}
-              initialLocation={selectedPost?.location}
-            />
+          {/* Search and Results Section */}
+          <View style={styles.searchSection}>
+            <Text style={styles.sectionTitle}>
+              {selectedPost?.location ? 'Choose New Location' : 'Add Location'}
+            </Text>
+            <View style={styles.locationPickerWrapper}>
+              <LocationPicker
+                onLocationSelect={setSelectedLocation}
+                initialLocation={selectedPost?.location}
+              />
+            </View>
           </View>
 
-          {selectedLocation && (
-            <TouchableOpacity
-              style={styles.saveButton}
-              onPress={() => handleSaveLocation(selectedLocation)}
-            >
-              <Text style={styles.saveButtonText}>
-                {selectedPost?.location ? 'Update Location' : 'Add Location'}
-              </Text>
-            </TouchableOpacity>
+          {/* Selected Location Preview */}
+          {selectedLocation && selectedLocation.id !== selectedPost?.location?.id && (
+            <View style={styles.selectedLocationPreview}>
+              <View style={styles.previewCard}>
+                <View style={styles.previewHeader}>
+                  <Ionicons name="location" size={18} color="#34C759" />
+                  <Text style={styles.previewTitle}>New Location</Text>
+                </View>
+                <Text style={styles.previewLocationName}>{selectedLocation.name}</Text>
+                {selectedLocation.vicinity && !selectedLocation.isCustom && (
+                  <Text style={styles.previewLocationAddress}>{selectedLocation.vicinity}</Text>
+                )}
+              </View>
+            </View>
           )}
         </View>
-      </View>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
     </Modal>
   );
 
@@ -826,6 +948,13 @@ export default function PostManagement({
 }
 
 const getStyles = (theme) => StyleSheet.create({
+  safeAreaView: {
+    flex: 1,
+    backgroundColor: theme.background,
+  },
+  keyboardAvoidingView: {
+    flex: 1,
+  },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
@@ -852,6 +981,13 @@ const getStyles = (theme) => StyleSheet.create({
   },
   deleteOptionText: {
     fontSize: 16,
+    color: '#ff3b30'
+  },
+  destructiveOption: {
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 59, 48, 0.1)'
+  },
+  destructiveText: {
     color: '#ff3b30'
   },
   modalContainer: {
@@ -1090,17 +1226,143 @@ const getStyles = (theme) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: 10,
-    backgroundColor: '#ff3b30',
+    backgroundColor: 'transparent',
     borderRadius: 8,
-    marginTop: 10,
+    borderWidth: 1,
+    borderColor: '#ff3b30',
     gap: 5
   },
   removeLocationText: {
-    color: '#fff',
+    color: '#ff3b30',
     fontSize: 14,
-    fontWeight: '600'
+    fontWeight: '500'
   },
   locationPickerContainer: {
-    marginBottom: 20
-  }
+    flex: 1,
+    marginBottom: 20,
+    minHeight: 300,
+  },
+  // New Location Modal Styles
+  locationModalContainer: {
+    flex: 1,
+    backgroundColor: theme.background,
+  },
+  locationModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.border,
+    backgroundColor: theme.surface,
+  },
+  locationModalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: theme.text,
+    flex: 1,
+    textAlign: 'center',
+  },
+  headerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    minWidth: 80,
+  },
+  headerButtonText: {
+    fontSize: 16,
+    color: theme.text,
+    marginLeft: 4,
+  },
+  saveHeaderText: {
+    color: '#007AFF',
+    fontWeight: '600',
+  },
+  currentLocationSection: {
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.border,
+  },
+  currentLocationCard: {
+    backgroundColor: theme.surface,
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: theme.border,
+  },
+  currentLocationHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  currentLocationTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: theme.textSecondary,
+    marginLeft: 8,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  currentLocationName: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: theme.text,
+    marginBottom: 12,
+  },
+  searchSection: {
+    flex: 1,
+    padding: 16,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: theme.text,
+    marginBottom: 16,
+  },
+  locationPickerWrapper: {
+    flex: 1,
+    backgroundColor: theme.surface,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.border,
+    overflow: 'hidden',
+  },
+  selectedLocationPreview: {
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: theme.border,
+    backgroundColor: theme.surface,
+  },
+  previewCard: {
+    backgroundColor: theme.background,
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#34C759',
+  },
+  previewHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  previewTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#34C759',
+    marginLeft: 8,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  previewLocationName: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: theme.text,
+    marginBottom: 4,
+  },
+  previewLocationAddress: {
+    fontSize: 14,
+    color: theme.textSecondary,
+  },
 });
