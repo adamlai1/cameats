@@ -1,7 +1,6 @@
 import React, { memo, useEffect, useReducer, useRef } from 'react';
 import {
     Image,
-    InteractionManager,
     StyleSheet,
     Text,
     View
@@ -38,25 +37,23 @@ const Cat = memo(() => {
 
   // Register eating function and position when component mounts
   useEffect(() => {
-    // Defer registration until after interactions are complete for better startup performance
-    InteractionManager.runAfterInteractions(() => {
-      const eatFunction = () => {
-        // Clear any existing timeout
-        if (timeoutRef.current) {
-          clearTimeout(timeoutRef.current);
-        }
-        
-        dispatch({ type: 'START_EATING' });
-        
-        // Close mouth after 1.7 seconds (1000ms + 700ms additional)
-        timeoutRef.current = setTimeout(() => {
-          dispatch({ type: 'STOP_EATING' });
-        }, 1700);
-      };
+    // Register immediately - don't defer with InteractionManager
+    const eatFunction = () => {
+      // Clear any existing timeout
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
       
-      registerCatEating(eatFunction);
-      registerCatPosition(catRef.current);
-    });
+      dispatch({ type: 'START_EATING' });
+      
+      // Close mouth after 1.1 seconds (reduced by 0.6 seconds)
+      timeoutRef.current = setTimeout(() => {
+        dispatch({ type: 'STOP_EATING' });
+      }, 1100);
+    };
+    
+    registerCatEating(eatFunction);
+    registerCatPosition(catRef.current);
     
     // Cleanup timeout on unmount
     return () => {

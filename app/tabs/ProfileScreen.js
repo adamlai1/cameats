@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { manipulateAsync } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { usePathname, useRouter } from 'expo-router';
-import { arrayUnion, collection, deleteDoc, doc, getDoc, getDocs, increment, limit, orderBy, query, updateDoc, where } from 'firebase/firestore';
+import { arrayUnion, collection, deleteDoc, doc, getDoc, getDocs, increment, limit, query, updateDoc, where } from 'firebase/firestore';
 import { deleteObject } from 'firebase/storage';
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import {
@@ -28,6 +28,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { auth, db, storage } from '../../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
+import * as postService from '../services/postService';
 import { uploadProfilePicture } from '../utils/profilePicture';
 
 // Import bread slice images and preload them
@@ -314,20 +315,29 @@ const ProfileScreen = forwardRef((props, ref) => {
       setBio(userData.bio || '');
       setProfilePicUrl(userData.profilePicUrl);
 
-      // Fetch friends' details
-      const friendPromises = (userData.friends || []).map(friendId =>
-        getDoc(doc(db, 'users', friendId))
-      );
-      const friendDocs = await Promise.all(friendPromises);
-      const friendsList = friendDocs
-              .filter(doc => doc.exists())
-        .map(doc => ({
-          id: doc.id,
-          username: doc.data().username,
-          displayName: doc.data().displayName,
-          profilePicUrl: doc.data().profilePicUrl
-        }));
-      setFriendsList(friendsList);
+      // Batch fetch friends' details if any exist
+      if (userData.friends && userData.friends.length > 0) {
+        try {
+          const friendPromises = userData.friends.map(friendId =>
+            getDoc(doc(db, 'users', friendId))
+          );
+          const friendDocs = await Promise.all(friendPromises);
+          const friendsList = friendDocs
+            .filter(doc => doc.exists())
+            .map(doc => ({
+              id: doc.id,
+              username: doc.data().username,
+              displayName: doc.data().displayName,
+              profilePicUrl: doc.data().profilePicUrl
+            }));
+          setFriendsList(friendsList);
+        } catch (error) {
+          console.error('Error fetching friends:', error);
+          setFriendsList([]);
+        }
+      } else {
+        setFriendsList([]);
+      }
 
       // Set friend requests
       setFriendRequests(userData.friendRequests || []);
@@ -335,107 +345,67 @@ const ProfileScreen = forwardRef((props, ref) => {
       // Show profile info immediately, then load posts
       setLoading(false);
 
-      // Fetch all posts and filter for user's posts
-      const postsQuery = query(
-        collection(db, 'posts'),
-        orderBy('createdAt', 'desc')
-      );
-      
-      const snapshot = await getDocs(postsQuery);
-      const allPosts = await Promise.all(snapshot.docs.map(async docSnapshot => {
-        const data = docSnapshot.data();
-        
-        // Handle old format posts by creating owners array
-        let owners = [];
-        if (data.postOwners && data.postOwners.length > 0) {
-          // New format - fetch usernames for any unknown owners
-          const ownerPromises = data.postOwners.map(async (ownerId) => {
-            if (!ownerId) return { id: 'unknown', username: 'Unknown' };
-            
-            // If we already have the owner data, use it
-            const existingOwner = data.owners?.find(o => o.id === ownerId);
-            if (existingOwner && existingOwner.username !== 'Unknown') {
-              return existingOwner;
-            }
-            
-            // Otherwise fetch the user data
-            try {
-              const userRef = doc(db, 'users', ownerId);
-              const userDoc = await getDoc(userRef);
-              if (userDoc.exists()) {
-                return { id: ownerId, username: userDoc.data().username };
-              }
-            } catch (error) {
-              console.error('Error fetching owner data:', error);
-            }
-            return { id: ownerId, username: 'Unknown' };
-          });
-          owners = await Promise.all(ownerPromises);
-        } else {
-          // Old format - fetch username for creator
-          try {
-            // For old format posts, first try to get the username from the post data
-            if (data.username) {
-              owners = [{ id: data.userId || 'unknown', username: data.username }];
-            } 
-            // If no username in post data, try to fetch from users collection
-            else if (data.userId) {
-              const userRef = doc(db, 'users', data.userId);
-              const userDoc = await getDoc(userRef);
-              if (userDoc.exists()) {
-                owners = [{ id: data.userId, username: userDoc.data().username }];
-              } else {
-                owners = [{ id: data.userId, username: 'Unknown' }];
-              }
-            } else {
-              owners = [{ id: 'unknown', username: 'Unknown' }];
-            }
-
-            // If this is the current user's post but somehow doesn't have the right username
-            if (data.userId === auth.currentUser.uid && owners[0].username === 'Unknown') {
-              const currentUserDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
-              if (currentUserDoc.exists()) {
-                owners = [{ id: auth.currentUser.uid, username: currentUserDoc.data().username }];
-              }
-            }
-          } catch (error) {
-            console.error('Error fetching creator data:', error);
-            // Fallback to using the username from post data if available
-            owners = [{ 
-              id: data.userId || 'unknown', 
-              username: data.username || 'Unknown' 
-            }];
-          }
+      // Defer post loading to improve perceived performance
+      setTimeout(async () => {
+        try {
+          // Use optimized post service instead of fetching all posts
+          const userPosts = await postService.fetchPosts([auth.currentUser.uid], null, 100);
+          setPosts(userPosts);
+        } catch (error) {
+          console.error('Error fetching user posts:', error);
+          // Fallback to old method if optimized fetch fails
+          await fetchPostsLegacy();
         }
-        
-        return {
-          id: docSnapshot.id || `generated-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          ...data,
-          owners: owners,
-          // Ensure like state is always properly initialized
-          bitedBy: Array.isArray(data.bitedBy) ? data.bitedBy : [],
-          bites: typeof data.bites === 'number' ? data.bites : 0
-        };
-      }));
-
-      // Filter posts where this user is an owner
-      const userPosts = allPosts.filter(post => {
-        // Check if user is in postOwners array (new format)
-        const isOwner = post.postOwners?.includes(auth.currentUser.uid);
-        
-        // Check if user is the original creator (old format)
-        const isCreator = post.userId === auth.currentUser.uid;
-        
-        // Post should show if user is either an owner or creator
-        return isOwner || isCreator;
-      });
-
-      setPosts(userPosts);
+      }, 100);
     } catch (error) {
       console.error('Error fetching profile:', error);
       Alert.alert('Error', 'Failed to load profile. Please try again.');
     } finally {
       setRefreshing(false);
+    }
+  };
+
+  // Fallback method for post fetching
+  const fetchPostsLegacy = async () => {
+    try {
+      // Fetch posts more efficiently without composite index requirement
+      const postsQuery = query(
+        collection(db, 'posts'),
+        where('userId', '==', auth.currentUser.uid), // Single user query - no composite index needed
+        limit(50) // Limit to improve performance
+      );
+      
+      const snapshot = await getDocs(postsQuery);
+      let userPosts = snapshot.docs.map(docSnapshot => {
+        const data = docSnapshot.data();
+        
+        // Use existing username from profile data to avoid extra fetches
+        const owners = data.postOwners?.length > 0 
+          ? data.postOwners.map(ownerId => ({
+              id: ownerId,
+              username: ownerId === auth.currentUser.uid ? username : 'Unknown'
+            }))
+          : [{ id: auth.currentUser.uid, username: username }];
+        
+        return {
+          id: docSnapshot.id,
+          ...data,
+          owners: owners,
+          bitedBy: Array.isArray(data.bitedBy) ? data.bitedBy : [],
+          bites: typeof data.bites === 'number' ? data.bites : 0
+        };
+      });
+
+      // Sort client-side since we can't use orderBy with where
+      userPosts.sort((a, b) => {
+        const aTime = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+        const bTime = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+        return bTime - aTime; // Descending order
+      });
+
+      setPosts(userPosts);
+    } catch (error) {
+      console.error('Error in legacy post fetch:', error);
     }
   };
 

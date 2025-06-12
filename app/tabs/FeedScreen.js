@@ -9,7 +9,6 @@ import {
     Dimensions,
     FlatList,
     Image,
-    InteractionManager,
     RefreshControl,
     SafeAreaView,
     ScrollView,
@@ -254,6 +253,40 @@ const getStyles = (theme) => StyleSheet.create({
     fontSize: 16,
     color: theme.textSecondary
   },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20
+  },
+  loadingText: {
+    fontSize: 16,
+    color: theme.text,
+    marginTop: 15,
+    textAlign: 'center'
+  },
+  debugText: {
+    fontSize: 11,
+    color: '#fff',
+    textAlign: 'center',
+    fontFamily: 'monospace'
+  },
+  disabledButton: {
+    opacity: 0.5
+  },
+  pressedBread: {
+    transform: [{ scale: 0.95 }]
+  },
+  debugOverlay: {
+    position: 'absolute',
+    bottom: 50,
+    left: 10,
+    right: 10,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    padding: 8,
+    borderRadius: 8,
+    zIndex: 1000
+  },
   locationContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -288,18 +321,35 @@ const getStyles = (theme) => StyleSheet.create({
   },
 });
 
-// Memoized BreadButton component to prevent unnecessary re-renders
-const BreadButton = React.memo(({ postId, hasUserBited, onPress, theme }) => {
+// Memoized BreadButton component with instant visual feedback
+const BreadButton = React.memo(({ postId, hasUserBited, onPress, theme, disabled = false }) => {
   const styles = getStyles(theme);
+  const [isPressed, setIsPressed] = useState(false);
+  
+  const handlePress = useCallback(() => {
+    if (disabled) return;
+    
+    // Instant visual feedback
+    setIsPressed(true);
+    onPress(postId);
+    
+    // Reset pressed state
+    setTimeout(() => setIsPressed(false), 150);
+  }, [postId, onPress, disabled]);
+  
   return (
     <TouchableOpacity 
-      style={styles.biteButton}
-      onPress={() => onPress(postId)}
+      style={[styles.biteButton, disabled && styles.disabledButton]}
+      onPress={handlePress}
       activeOpacity={0.7}
+      disabled={disabled}
     >
       <Image 
         source={hasUserBited ? breadBitten : breadNormal}
-        style={styles.breadEmoji}
+        style={[
+          styles.breadEmoji,
+          isPressed && styles.pressedBread
+        ]}
         fadeDuration={0} // Disable fade animation for faster updates
       />
     </TouchableOpacity>
@@ -327,6 +377,16 @@ const FeedScreen = forwardRef((props, ref) => {
   const pinchRef = useRef();
   const biteMarkRefs = useRef({});
   const postImageRefs = useRef({}); // Add refs for post images
+  
+  // Readiness tracking - only render posts when everything is ready
+  const [systemsReady, setSystemsReady] = useState({
+    breadImages: false,
+    catFunctions: false,
+    postsLoaded: false,
+    biteAnimationImage: false
+  });
+  
+  const allSystemsReady = Object.values(systemsReady).every(ready => ready);
 
   // Expose scrollToTop function to parent component
   useImperativeHandle(ref, () => ({
@@ -341,40 +401,37 @@ const FeedScreen = forwardRef((props, ref) => {
     try {
       const newPosts = await postService.fetchPosts(null, lastPost, POSTS_PER_PAGE);
       
-      // Instagram-style intelligent preloading
-      InteractionManager.runAfterInteractions(() => {
-        // Immediately preload first 2 post images for instant display
-        const priorityPosts = newPosts.slice(0, 2);
-        priorityPosts.forEach(post => {
-          if (post.imageUrls?.[0]) {
-            Image.prefetch(post.imageUrls[0]).catch(() => {});
+      // Immediate preloading - no delays
+      const priorityPosts = newPosts.slice(0, 3); // Load first 3 immediately
+      priorityPosts.forEach(post => {
+        if (post.imageUrls?.[0]) {
+          Image.prefetch(post.imageUrls[0]).catch(() => {});
+        } else if (post.imageUrl) {
+          Image.prefetch(post.imageUrl).catch(() => {});
+        }
+      });
+
+      // Background preload remaining after shorter delay
+      setTimeout(() => {
+        const remainingPosts = newPosts.slice(3);
+        remainingPosts.forEach(post => {
+          // Pre-fetch post images in background
+          if (post.imageUrls) {
+            post.imageUrls.forEach(url => Image.prefetch(url).catch(() => {}));
           } else if (post.imageUrl) {
             Image.prefetch(post.imageUrl).catch(() => {});
           }
+
+          // Pre-fetch user profile pictures in background
+          if (post.postOwners) {
+            post.postOwners.forEach(owner => {
+              if (owner.profilePicUrl) {
+                Image.prefetch(owner.profilePicUrl).catch(() => {});
+              }
+            });
+          }
         });
-
-        // Delay preload remaining images to avoid blocking
-        setTimeout(() => {
-          const remainingPosts = newPosts.slice(2);
-          remainingPosts.forEach(post => {
-            // Pre-fetch post images in background
-            if (post.imageUrls) {
-              post.imageUrls.forEach(url => Image.prefetch(url).catch(() => {}));
-            } else if (post.imageUrl) {
-              Image.prefetch(post.imageUrl).catch(() => {});
-            }
-
-            // Pre-fetch user profile pictures in background
-            if (post.postOwners) {
-              post.postOwners.forEach(owner => {
-                if (owner.profilePicUrl) {
-                  Image.prefetch(owner.profilePicUrl).catch(() => {});
-                }
-              });
-            }
-          });
-        }, 1000);
-      });
+      }, 200); // Much shorter delay
 
       // Update pagination state
       setHasMorePosts(newPosts.length === POSTS_PER_PAGE);
@@ -389,11 +446,124 @@ const FeedScreen = forwardRef((props, ref) => {
     }
   };
 
+  // Check bread images readiness - actually preload them
+  useEffect(() => {
+    const preloadBreadImages = async () => {
+      try {
+        const breadNormalSource = Image.resolveAssetSource(breadNormal);
+        const breadBittenSource = Image.resolveAssetSource(breadBitten);
+        
+        // Actually preload the images into memory
+        await Promise.all([
+          Image.prefetch(breadNormalSource.uri),
+          Image.prefetch(breadBittenSource.uri),
+          Image.prefetch(Image.resolveAssetSource(biteAnimationImage).uri)
+        ]);
+        
+        // Longer delay to ensure images are truly in memory and ready
+        setTimeout(() => {
+          setSystemsReady(prev => ({ 
+            ...prev, 
+            breadImages: true,
+            biteAnimationImage: true 
+          }));
+        }, 300); // Increased delay for true readiness
+      } catch (error) {
+        console.warn('Bread images failed to preload:', error);
+        // Still mark as ready to not block the UI
+        setSystemsReady(prev => ({ 
+          ...prev, 
+          breadImages: true,
+          biteAnimationImage: true 
+        }));
+      }
+    };
+    
+    preloadBreadImages();
+  }, []);
+  
+  // Check cat functions readiness with additional verification
+  useEffect(() => {
+    if (triggerCatEating && getCatPosition) {
+      // Test that cat functions actually work before marking ready
+      setTimeout(() => {
+        try {
+          // Test getCatPosition function
+          getCatPosition().then(() => {
+            setSystemsReady(prev => ({ ...prev, catFunctions: true }));
+          }).catch(() => {
+            // Still mark as ready to not block forever
+            setSystemsReady(prev => ({ ...prev, catFunctions: true }));
+          });
+        } catch (error) {
+          // Still mark as ready to not block forever
+          setSystemsReady(prev => ({ ...prev, catFunctions: true }));
+        }
+      }, 200); // Small delay to ensure cat context is fully initialized
+    }
+  }, [triggerCatEating, getCatPosition]);
+
+  useEffect(() => {
+    // Only initialize when critical systems are ready
+    if (systemsReady.breadImages && systemsReady.catFunctions) {
+      loadInitialPosts();
+    }
+  }, [systemsReady.breadImages, systemsReady.catFunctions]);
+
+  const preloadPostImages = async (posts) => {
+    if (!posts || posts.length === 0) return;
+    
+    // Extract all image URLs from posts
+    const imageUrls = posts.flatMap(post => 
+      post.imageUrls || [post.imageUrl]
+    ).filter(Boolean);
+    
+    // Preload all images in parallel
+    const imagePromises = imageUrls.map(url => 
+      new Promise((resolve) => {
+        Image.prefetch(url)
+          .then(() => resolve())
+          .catch(() => resolve()); // Don't fail if one image fails
+      })
+    );
+    
+    // Wait for all images to preload (or timeout after 5 seconds)
+    await Promise.race([
+      Promise.all(imagePromises),
+      new Promise(resolve => setTimeout(resolve, 5000))
+    ]);
+  };
+
   const loadInitialPosts = async () => {
     setLoading(true);
-    const initialPosts = await fetchPosts();
-    setPosts(initialPosts);
-    setLoading(false);
+    
+    try {
+      // Fetch posts first
+      const initialPosts = await fetchPosts();
+      
+      // Preload all post images before showing posts
+      await preloadPostImages(initialPosts);
+      
+      // Only set posts after images are preloaded
+      setPosts(initialPosts);
+      
+      // Mark systems as ready
+      setTimeout(() => {
+        setSystemsReady(prev => ({ ...prev, postsLoaded: true }));
+        // Only stop loading after everything is truly ready
+        setTimeout(() => {
+          setLoading(false);
+        }, 200); // Extra buffer to ensure smooth transition
+      }, 100); // Reduced delay since images are already loaded
+    } catch (error) {
+      console.error('Error loading initial posts:', error);
+      setPosts([]); // Set empty array to allow animations to work
+      // Even on error, mark as loaded so UI doesn't hang
+      setTimeout(() => {
+        setSystemsReady(prev => ({ ...prev, postsLoaded: true }));
+        setLoading(false);
+      }, 300);
+    }
   };
 
   const loadMorePosts = async () => {
@@ -406,20 +576,13 @@ const FeedScreen = forwardRef((props, ref) => {
   };
 
   const handleRefresh = async () => {
+    if (!allSystemsReady) return; // Don't allow refresh until systems are ready
+    
     setRefreshing(true);
     const refreshedPosts = await fetchPosts();
     setPosts(refreshedPosts);
     setRefreshing(false);
   };
-
-  useEffect(() => {
-    // Defer initial loading until after the component is mounted and UI is responsive
-    InteractionManager.runAfterInteractions(() => {
-      setTimeout(() => {
-        loadInitialPosts();
-      }, 100); // Small delay to ensure smooth startup
-    });
-  }, []);
 
   const updatePostOptimistic = useCallback((postId, updateFn) => {
     setPosts(prevPosts => {
@@ -437,32 +600,55 @@ const FeedScreen = forwardRef((props, ref) => {
     });
   }, []);
 
-  // Main feed bite handler with cat animation
+  // Main feed bite handler with cat animation - with optimistic updates
   const handleBitePress = useCallback(async (postId) => {
+    if (!allSystemsReady) return; // Safety check
+    
     // Check if user has already bitten this post
     const post = posts.find(p => p.id === postId);
     const currentlyBited = post?.bitedBy?.includes(auth.currentUser.uid) || false;
     
-    // Only trigger cat animations when ADDING a bite (not removing) - MAIN FEED ONLY
+    // IMMEDIATE optimistic update for instant UI response
+    updatePostOptimistic(postId, (post) => ({
+      ...post,
+      bites: !currentlyBited ? (post.bites || 0) + 1 : Math.max(0, (post.bites || 0) - 1),
+      bitedBy: !currentlyBited 
+        ? [...(post.bitedBy || []), auth.currentUser.uid]
+        : (post.bitedBy || []).filter(id => id !== auth.currentUser.uid)
+    }));
+    
+    // Only trigger cat animations when ADDING a bite - non-blocking
     if (!currentlyBited) {
+      // Trigger immediately without waiting
       triggerCatEating();
-      triggerBiteAnimation(postId);
+      // Trigger bite animation without awaiting
+      triggerBiteAnimation(postId).catch(() => {}); // Catch any errors silently
     }
     
+    // Background server update - don't block UI
     try {
       const hasUserBited = await postService.toggleBite(postId);
       
+      // Update with server response (in case of discrepancy)
       updatePostOptimistic(postId, (post) => ({
         ...post,
-        bites: hasUserBited ? (post.bites || 0) + 1 : Math.max(0, (post.bites || 0) - 1),
+        bites: hasUserBited ? (post.bites || 0) : Math.max(0, (post.bites || 1) - 1),
         bitedBy: hasUserBited 
-          ? [...(post.bitedBy || []), auth.currentUser.uid]
+          ? [...(post.bitedBy || []).filter(id => id !== auth.currentUser.uid), auth.currentUser.uid]
           : (post.bitedBy || []).filter(id => id !== auth.currentUser.uid)
       }));
     } catch (error) {
-      console.error('Error toggling bite:', error);
+      console.error('Error toggling bite, reverting:', error);
+      // Revert optimistic update on error
+      updatePostOptimistic(postId, (post) => ({
+        ...post,
+        bites: currentlyBited ? (post.bites || 0) + 1 : Math.max(0, (post.bites || 0) - 1),
+        bitedBy: currentlyBited 
+          ? [...(post.bitedBy || []), auth.currentUser.uid]
+          : (post.bitedBy || []).filter(id => id !== auth.currentUser.uid)
+      }));
     }
-  }, [posts, updatePostOptimistic, triggerCatEating, triggerBiteAnimation]);
+  }, [posts, updatePostOptimistic, triggerCatEating, triggerBiteAnimation, allSystemsReady]);
 
   const handleDoubleTapLike = useCallback(async (postId) => {
     const post = posts.find(p => p.id === postId);
@@ -512,28 +698,10 @@ const FeedScreen = forwardRef((props, ref) => {
       return;
     }
 
-    // IMMEDIATELY show the bite mark with estimated position
+    // Don't create bite animation until we have accurate positions
     const biteMarkSize = 450;
-    const estimatedStartX = Math.min(WINDOW_WIDTH - 100, WINDOW_WIDTH - biteMarkSize);
-    const estimatedStartY = 100; // Rough estimate for header height
 
-    // Create animated values and show immediately
-    const animationObject = {
-      opacity: new Animated.Value(0.8), // Start visible immediately
-      translateX: new Animated.Value(0),
-      translateY: new Animated.Value(0),
-      scale: new Animated.Value(1),
-      startX: estimatedStartX,
-      startY: estimatedStartY,
-    };
-    
-    // Show the bite mark immediately
-    setBiteAnimations(prev => ({
-      ...prev,
-      [postId]: animationObject
-    }));
-
-    // Calculate actual positions in the background while bite mark is visible
+    // Calculate actual positions first - no estimated positioning
     try {
       const [imagePosition, catPosition] = await Promise.race([
         Promise.all([
@@ -547,16 +715,28 @@ const FeedScreen = forwardRef((props, ref) => {
         new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 500))
       ]);
 
-      // Update position if we got accurate measurements
+      // Calculate positions from actual measurements
       const actualStartX = Math.min(
         imagePosition.x + imagePosition.width - 50,
         WINDOW_WIDTH - biteMarkSize
       );
       const actualStartY = imagePosition.y;
 
-      // Update the animation object with accurate positions
-      animationObject.startX = actualStartX;
-      animationObject.startY = actualStartY;
+      // Only NOW create the animation object with accurate positions
+      const animationObject = {
+        opacity: new Animated.Value(0.8), // Start visible since we have accurate position
+        translateX: new Animated.Value(0),
+        translateY: new Animated.Value(0),
+        scale: new Animated.Value(1),
+        startX: actualStartX,
+        startY: actualStartY,
+      };
+      
+      // Add to animations with accurate positions
+      setBiteAnimations(prev => ({
+        ...prev,
+        [postId]: animationObject
+      }));
 
       // Calculate trajectory from actual starting position to cat
       const targetX = catPosition.x - (actualStartX + biteMarkSize / 2);
@@ -567,22 +747,22 @@ const FeedScreen = forwardRef((props, ref) => {
         Animated.parallel([
           Animated.timing(animationObject.opacity, {
             toValue: 0.3,
-            duration: 800,
+            duration: 500,
             useNativeDriver: true,
           }),
           Animated.timing(animationObject.translateX, {
             toValue: targetX,
-            duration: 800,
+            duration: 500,
             useNativeDriver: true,
           }),
           Animated.timing(animationObject.translateY, {
             toValue: targetY,
-            duration: 800,
+            duration: 500,
             useNativeDriver: true,
           }),
           Animated.timing(animationObject.scale, {
             toValue: 0.02,
-            duration: 800,
+            duration: 500,
             useNativeDriver: true,
           }),
         ]).start(() => {
@@ -600,54 +780,18 @@ const FeedScreen = forwardRef((props, ref) => {
             });
           });
         });
-      }, 1000); // Linger for 1 second
+      }, 500); // Linger for 0.5 seconds
 
     } catch (error) {
-      // If position calculation fails, still do the animation with estimated positions
-      console.warn('Position calculation failed, using estimates:', error);
+      // If position calculation fails, don't show the bite mark at all
+      console.warn('Position calculation failed, skipping bite animation:', error);
       
-      // Use estimated target (center-ish of screen for cat)
-      const estimatedTargetX = (WINDOW_WIDTH / 2) - (estimatedStartX + biteMarkSize / 2);
-      const estimatedTargetY = 50 - (estimatedStartY + biteMarkSize / 2);
-
-      setTimeout(() => {
-        Animated.parallel([
-          Animated.timing(animationObject.opacity, {
-            toValue: 0.3,
-            duration: 800,
-            useNativeDriver: true,
-          }),
-          Animated.timing(animationObject.translateX, {
-            toValue: estimatedTargetX,
-            duration: 800,
-            useNativeDriver: true,
-          }),
-          Animated.timing(animationObject.translateY, {
-            toValue: estimatedTargetY,
-            duration: 800,
-            useNativeDriver: true,
-          }),
-          Animated.timing(animationObject.scale, {
-            toValue: 0.02,
-            duration: 800,
-            useNativeDriver: true,
-          }),
-        ]).start(() => {
-          // Final fade out
-          Animated.timing(animationObject.opacity, {
-            toValue: 0,
-            duration: 200,
-            useNativeDriver: true,
-          }).start(() => {
-            // Clean up animation after completion
-            setBiteAnimations(prev => {
-              const newAnimations = { ...prev };
-              delete newAnimations[postId];
-              return newAnimations;
-            });
-          });
-        });
-      }, 1000); // Linger for 1 second
+      // Clean up the animation object since we won't use it
+      setBiteAnimations(prev => {
+        const newAnimations = { ...prev };
+        delete newAnimations[postId];
+        return newAnimations;
+      });
     }
   }, [getCatPosition, posts, currentImageIndices]);
 
@@ -901,89 +1045,104 @@ const FeedScreen = forwardRef((props, ref) => {
     }
   }, [scale, viewMode]);
 
-  if (loading && !refreshing) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <FlatList
-          data={[1, 2, 3]} // Show 3 skeleton loaders
-          renderItem={() => <PostSkeleton />}
-          keyExtractor={(_, index) => `skeleton-${index}`}
-        />
-      </SafeAreaView>
-    );
-  }
-
   return (
     <SafeAreaView style={styles.container}>
-      <PinchGestureHandler
-        ref={pinchRef}
-        onGestureEvent={onPinchGestureEvent}
-        onHandlerStateChange={onPinchHandlerStateChange}
-      >
-        <View style={styles.container}>
-          <ScrollView
-            refreshControl={
-              <RefreshControl
-                refreshing={refreshing}
-                onRefresh={onRefresh}
-                tintColor={theme.accent}
-              />
-            }
-            contentContainerStyle={{ flex: 1 }}
-          >
-            <Header />
-            <View style={{ flex: 1 }}>
-              <FlatList
-                ref={flatListRef}
-                data={posts}
-                renderItem={viewMode === 'detail' ? renderDetailPost : renderGridPost}
-                keyExtractor={item => item.id ? `post-${item.id}` : `generated-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`}
-                numColumns={viewMode === 'grid' ? 3 : 1}
-                key={viewMode}
-                contentContainerStyle={styles.contentContainer}
-                onEndReached={loadMorePosts}
-                onEndReachedThreshold={0.5}
-                getItemLayout={getItemLayout}
-                onScrollToIndexFailed={info => {
-                  const wait = new Promise(resolve => setTimeout(resolve, 100));
-                  wait.then(() => {
-                    flatListRef.current?.scrollToIndex({
-                      index: info.index,
-                      animated: true,
-                      viewPosition: 0
-                    });
-                  });
-                }}
-                ListFooterComponent={
-                  loadingMore ? (
-                    <View style={styles.loadingMore}>
-                      <ActivityIndicator color={theme.accent} />
-                    </View>
-                  ) : null
-                }
-                ListEmptyComponent={
-                  !loading && (
-                    <View style={styles.emptyContainer}>
-                      <Text style={styles.emptyText}>No posts yet</Text>
-                    </View>
-                  )
-                }
-              />
-            </View>
-          </ScrollView>
-          <PostManagement
-            selectedPost={selectedPost}
-            onClose={() => {
-              setSelectedPost(null);
-              setShowPostOptions(false);
-            }}
-            onUpdatePost={handleUpdatePost}
-            showPostOptions={showPostOptions}
-            setShowPostOptions={setShowPostOptions}
-            onDeletePost={handleDeletePost}
+      {/* Header stays persistent - never unmounts */}
+      <Header />
+      
+      {/* Conditional content below header */}
+      {(loading || !allSystemsReady || posts.length === 0) ? (
+        // Skeleton loading state
+        <>
+          <FlatList
+            data={[1, 2, 3, 4, 5]} // Show more skeleton loaders for longer loading
+            renderItem={() => <PostSkeleton />}
+            keyExtractor={(_, index) => `skeleton-${index}`}
           />
-        </View>
-      </PinchGestureHandler>
+          {/* Debug overlay - remove in production */}
+          <View style={styles.debugOverlay}>
+            <Text style={styles.debugText}>
+              Loading: {loading ? '⏳' : '✓'} | 
+              Bread: {systemsReady.breadImages ? '✓' : '⏳'} | 
+              Cat: {systemsReady.catFunctions ? '✓' : '⏳'} | 
+              Posts: {systemsReady.postsLoaded ? '✓' : '⏳'} | 
+              Bite: {systemsReady.biteAnimationImage ? '✓' : '⏳'} |
+              HasPosts: {posts.length > 0 ? '✓' : '⏳'} |
+              Images: Preloaded
+            </Text>
+          </View>
+        </>
+      ) : (
+        // Main content state
+        <PinchGestureHandler
+          ref={pinchRef}
+          onGestureEvent={onPinchGestureEvent}
+          onHandlerStateChange={onPinchHandlerStateChange}
+        >
+          <View style={styles.container}>
+            <ScrollView
+              refreshControl={
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={onRefresh}
+                  tintColor={theme.accent}
+                />
+              }
+              contentContainerStyle={{ flex: 1 }}
+            >
+              <View style={{ flex: 1 }}>
+                <FlatList
+                  ref={flatListRef}
+                  data={posts}
+                  renderItem={viewMode === 'detail' ? renderDetailPost : renderGridPost}
+                  keyExtractor={item => item.id ? `post-${item.id}` : `generated-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`}
+                  numColumns={viewMode === 'grid' ? 3 : 1}
+                  key={viewMode}
+                  contentContainerStyle={styles.contentContainer}
+                  onEndReached={loadMorePosts}
+                  onEndReachedThreshold={0.5}
+                  getItemLayout={getItemLayout}
+                  onScrollToIndexFailed={info => {
+                    const wait = new Promise(resolve => setTimeout(resolve, 100));
+                    wait.then(() => {
+                      flatListRef.current?.scrollToIndex({
+                        index: info.index,
+                        animated: true,
+                        viewPosition: 0
+                      });
+                    });
+                  }}
+                  ListFooterComponent={
+                    loadingMore ? (
+                      <View style={styles.loadingMore}>
+                        <ActivityIndicator color={theme.accent} />
+                      </View>
+                    ) : null
+                  }
+                  ListEmptyComponent={
+                    !loading && (
+                      <View style={styles.emptyContainer}>
+                        <Text style={styles.emptyText}>No posts yet</Text>
+                      </View>
+                    )
+                  }
+                />
+              </View>
+            </ScrollView>
+            <PostManagement
+              selectedPost={selectedPost}
+              onClose={() => {
+                setSelectedPost(null);
+                setShowPostOptions(false);
+              }}
+              onUpdatePost={handleUpdatePost}
+              showPostOptions={showPostOptions}
+              setShowPostOptions={setShowPostOptions}
+              onDeletePost={handleDeletePost}
+            />
+          </View>
+        </PinchGestureHandler>
+      )}
       
       {/* Global Bite Mark Animations - render over everything */}
       {Object.entries(biteAnimations).map(([postId, animation]) => (

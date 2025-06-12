@@ -14,6 +14,26 @@ const breadBitten = require('../assets/images/bread-bitten.png');
 
 function RootLayoutNav() {
   useEffect(() => {
+    // Synchronously resolve images to avoid any delays
+    const preloadImages = () => {
+      try {
+        // Resolve bread images synchronously for immediate availability
+        const breadNormalSource = Image.resolveAssetSource(breadNormal);
+        const breadBittenSource = Image.resolveAssetSource(breadBitten);
+        
+        // Force immediate cache of image sources
+        Image.prefetch(breadNormalSource.uri);
+        Image.prefetch(breadBittenSource.uri);
+        
+        console.log('Bread images cached immediately');
+      } catch (error) {
+        console.warn('Failed to cache bread images:', error);
+      }
+    };
+
+    // Start synchronously - no async delays
+    preloadImages();
+
     // Globally suppress VirtualizedLists warnings
     LogBox.ignoreLogs([
       'VirtualizedLists should never be nested inside plain ScrollViews',
@@ -22,14 +42,6 @@ function RootLayoutNav() {
       'ScrollView',
       'windowing and other functionality'
     ]);
-
-    // Load bread images in the background
-    Image.prefetch(Image.resolveAssetSource(breadNormal).uri).catch(err => 
-      console.warn('Failed to preload normal bread:', err)
-    );
-    Image.prefetch(Image.resolveAssetSource(breadBitten).uri).catch(err => 
-      console.warn('Failed to preload bitten bread:', err)
-    );
   }, []);
 
   return (

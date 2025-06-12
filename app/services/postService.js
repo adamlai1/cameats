@@ -18,6 +18,10 @@ import {
 } from 'firebase/firestore';
 import { auth, db } from '../../firebase';
 
+// Cache for user data to avoid repeated fetches
+const userDataCache = new Map();
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
 const fetchPostOwnerData = async (ownerIdOrObject) => {
   try {
     // If ownerIdOrObject is already an object with id and username, return it
@@ -39,20 +43,41 @@ const fetchPostOwnerData = async (ownerIdOrObject) => {
       };
     }
 
+    // Check cache first
+    const cacheKey = userId;
+    const cached = userDataCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+      return cached.data;
+    }
+
     const userDoc = await getDoc(doc(db, 'users', userId));
     if (!userDoc.exists()) {
-      return {
+      const fallbackData = {
         id: userId,
         username: 'Unknown',
         profilePicUrl: null
       };
+      // Cache unknown users to avoid repeated fetches
+      userDataCache.set(cacheKey, {
+        data: fallbackData,
+        timestamp: Date.now()
+      });
+      return fallbackData;
     }
     const userData = userDoc.data();
-    return {
+    const result = {
       id: userId,
       username: userData.username || 'Unknown',
       profilePicUrl: userData.profilePicUrl || null
     };
+
+    // Cache the result
+    userDataCache.set(cacheKey, {
+      data: result,
+      timestamp: Date.now()
+    });
+
+    return result;
   } catch (error) {
     console.error('Error fetching owner data:', error);
     return {
@@ -63,52 +88,118 @@ const fetchPostOwnerData = async (ownerIdOrObject) => {
   }
 };
 
-// Fetch posts with owners' data
+// Fetch posts with owners' data (optimized)
 export const fetchPosts = async (userIds = null, lastPost = null, postsPerPage = 50) => {
   try {
     let postsQuery;
+    let needsClientSort = false;
     
-    if (userIds) {
+    if (userIds && userIds.length === 1) {
+      // Single user query - remove orderBy to avoid composite index requirement
+      postsQuery = query(
+        collection(db, 'posts'),
+        where('userId', '==', userIds[0]),
+        limit(postsPerPage)
+      );
+      needsClientSort = true;
+    } else if (userIds && userIds.length > 1) {
+      // Multiple users - fetch without orderBy to avoid composite index requirement
       postsQuery = query(
         collection(db, 'posts'),
         where('userId', 'in', userIds),
-        orderBy('createdAt', 'desc'),
         limit(postsPerPage)
       );
+      needsClientSort = true;
     } else {
+      // All posts query - only this can use orderBy safely
       postsQuery = query(
         collection(db, 'posts'),
         orderBy('createdAt', 'desc'),
         limit(postsPerPage)
       );
-    }
-
-    if (lastPost) {
-      postsQuery = query(
-        postsQuery,
-        startAfter(lastPost.createdAt)
-      );
+      
+      if (lastPost) {
+        postsQuery = query(
+          postsQuery,
+          startAfter(lastPost.createdAt)
+        );
+      }
     }
 
     const snapshot = await getDocs(postsQuery);
-    const posts = await Promise.all(snapshot.docs.map(async doc => {
+    
+    // First, collect all unique user IDs that need to be fetched
+    const userIdsToFetch = new Set();
+    const postDataArray = [];
+    
+    snapshot.docs.forEach(doc => {
       const data = doc.data();
+      postDataArray.push({ id: doc.id, ...data });
+      
+      // Collect user IDs to fetch
+      if (data.owners && Array.isArray(data.owners)) {
+        data.owners.forEach(owner => {
+          if (typeof owner === 'string') {
+            userIdsToFetch.add(owner);
+          } else if (owner.id && (!owner.username || owner.username === 'Unknown')) {
+            userIdsToFetch.add(owner.id);
+          }
+        });
+      } else if (data.postOwners && Array.isArray(data.postOwners)) {
+        data.postOwners.forEach(ownerId => {
+          if (ownerId) userIdsToFetch.add(ownerId);
+        });
+      } else if (data.userId) {
+        userIdsToFetch.add(data.userId);
+      }
+    });
+
+    // Batch fetch all user data at once
+    const userDataPromises = Array.from(userIdsToFetch).map(userId => 
+      fetchPostOwnerData(userId)
+    );
+    const userDataResults = await Promise.all(userDataPromises);
+    
+    // Create a map for quick lookup
+    const userDataMap = new Map();
+    userDataResults.forEach(userData => {
+      userDataMap.set(userData.id, userData);
+    });
+
+    // Now process posts with cached user data
+    let posts = postDataArray.map(data => {
       let postOwners = [];
 
       // Handle different post formats
       if (data.owners && Array.isArray(data.owners)) {
         // Use owners array if available (new format)
-        postOwners = await Promise.all(
-          data.owners.map(owner => fetchPostOwnerData(owner))
-        );
+        postOwners = data.owners.map(owner => {
+          if (typeof owner === 'object' && owner.username && owner.username !== 'Unknown') {
+            return owner; // Already has complete data
+          }
+          const userId = typeof owner === 'string' ? owner : owner.id;
+          return userDataMap.get(userId) || {
+            id: userId,
+            username: 'Unknown',
+            profilePicUrl: null
+          };
+        });
       } else if (data.postOwners && Array.isArray(data.postOwners)) {
         // Fallback to postOwners array
-        postOwners = await Promise.all(
-          data.postOwners.map(owner => fetchPostOwnerData(owner))
+        postOwners = data.postOwners.map(ownerId => 
+          userDataMap.get(ownerId) || {
+            id: ownerId,
+            username: 'Unknown',
+            profilePicUrl: null
+          }
         );
       } else if (data.userId) {
         // Legacy format with single owner
-        const ownerData = await fetchPostOwnerData(data.userId);
+        const ownerData = userDataMap.get(data.userId) || {
+          id: data.userId,
+          username: 'Unknown',
+          profilePicUrl: null
+        };
         postOwners = [ownerData];
       } else {
         // Fallback for completely unknown ownership
@@ -125,7 +216,7 @@ export const fetchPosts = async (userIds = null, lastPost = null, postsPerPage =
       const bitedBy = Array.isArray(data.bitedBy) ? data.bitedBy : [];
 
       return {
-        id: doc.id,
+        id: data.id,
         ...data,
         postOwners,
         bites,
@@ -135,7 +226,16 @@ export const fetchPosts = async (userIds = null, lastPost = null, postsPerPage =
         imageUrls: data.imageUrls || (data.imageUrl ? [data.imageUrl] : []),
         createdAt: data.createdAt || serverTimestamp()
       };
-    }));
+    });
+
+    // Sort client-side if needed (when we used where clauses)
+    if (needsClientSort) {
+      posts.sort((a, b) => {
+        const aTime = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+        const bTime = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+        return bTime - aTime; // Descending order (newest first)
+      });
+    }
 
     return posts;
   } catch (error) {
