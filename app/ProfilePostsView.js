@@ -3,22 +3,22 @@ import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { arrayRemove, arrayUnion, doc, getDoc, increment, updateDoc } from 'firebase/firestore';
 import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    Animated,
-    Dimensions,
-    FlatList,
-    Image,
-    Modal,
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View
+  ActivityIndicator,
+  Alert,
+  Animated,
+  Dimensions,
+  FlatList,
+  Image,
+  Modal,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import { State, TapGestureHandler } from 'react-native-gesture-handler';
 import { auth, db, storage } from '../firebase';
@@ -26,10 +26,10 @@ import PostManagement from './components/PostManagement';
 import { useTheme } from './contexts/ThemeContext';
 import { handleDeletePost as deletePostUtil } from './utils/postOptionsUtils';
 
-// Import bread slice images and bite animation
+// Import bread slice images
 const breadNormal = require('../assets/images/bread-normal.png');
 const breadBitten = require('../assets/images/bread-bitten.png');
-const biteAnimationImage = require('../assets/images/bite-animation.png');
+const biteOverlayImage = require('../assets/images/bite-animation.png');
 
 const WINDOW_WIDTH = Dimensions.get('window').width;
 
@@ -56,7 +56,20 @@ export default function ProfilePostsView() {
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [currentImageIndices, setCurrentImageIndices] = useState({});
-  const [biteAnimations, setBiteAnimations] = useState({});
+  // Subtle bite feedback overlay animation
+  const biteFeedbackAnimRefs = useRef({});
+  const triggerBiteFeedback = useCallback((postId) => {
+    if (!biteFeedbackAnimRefs.current[postId]) {
+      biteFeedbackAnimRefs.current[postId] = new Animated.Value(0);
+    }
+    const anim = biteFeedbackAnimRefs.current[postId];
+    anim.stopAnimation();
+    Animated.sequence([
+      Animated.timing(anim, { toValue: 1, duration: 0, useNativeDriver: true }),
+      Animated.delay(900),
+      Animated.timing(anim, { toValue: 0, duration: 180, useNativeDriver: true })
+    ]).start();
+  }, []);
   const [selectedPost, setSelectedPost] = useState(null);
   const [showPostOptions, setShowPostOptions] = useState(false);
 
@@ -109,8 +122,14 @@ export default function ProfilePostsView() {
       
       // Filter out null posts and set the data
       const validPosts = fetchedPosts.filter(post => post !== null);
-      console.log('Successfully fetched', validPosts.length, 'posts');
-      setPosts(validPosts);
+      
+      // Deduplicate posts by ID to prevent duplicate keys
+      const deduplicatedPosts = validPosts.filter((post, index, self) => 
+        self.findIndex(p => p.id === post.id) === index
+      );
+      
+      console.log('Successfully fetched', deduplicatedPosts.length, 'posts');
+      setPosts(deduplicatedPosts);
     } catch (error) {
       console.error('Error fetching posts data:', error);
     } finally {
@@ -144,34 +163,7 @@ export default function ProfilePostsView() {
     }));
   };
 
-  const triggerBiteAnimation = useCallback((postId) => {
-    // Create new animated value for this post - start visible immediately
-    const animatedValue = new Animated.Value(1);
-    
-    setBiteAnimations(prev => ({
-      ...prev,
-      [postId]: animatedValue
-    }));
-
-    // Start animation sequence
-    Animated.sequence([
-      // Hold for 2 seconds (visible immediately)
-      Animated.delay(2000),
-      // Fade out
-      Animated.timing(animatedValue, {
-        toValue: 0,
-        duration: 500,
-        useNativeDriver: true,
-      }),
-    ]).start(() => {
-      // Clean up animation after completion
-      setBiteAnimations(prev => {
-        const newAnimations = { ...prev };
-        delete newAnimations[postId];
-        return newAnimations;
-      });
-    });
-  }, []);
+  // triggerBiteAnimation removed
 
   const handleUsernamePress = (ownerId) => {
     if (ownerId === auth.currentUser.uid) return; // Don't navigate if clicking own profile
@@ -211,9 +203,8 @@ export default function ProfilePostsView() {
           bitedBy: currentBitedBy.filter(id => id !== userId)
         };
       } else {
-        // Trigger bite animation when ADDING a bite
-        triggerBiteAnimation(postId);
-        
+        // Trigger subtle bite feedback
+        triggerBiteFeedback(postId);
         return {
           ...post,
           bites: (post.bites || 0) + 1,
@@ -278,9 +269,8 @@ export default function ProfilePostsView() {
       
       if (hasUserBited) return post;
       
-      // Trigger bite animation
-      triggerBiteAnimation(postId);
-      
+      // Trigger subtle bite feedback
+      triggerBiteFeedback(postId);
       return {
         ...post,
         bites: (post.bites || 0) + 1,
@@ -310,7 +300,7 @@ export default function ProfilePostsView() {
     };
     
     updateFirebase();
-  }, [updatePostOptimistic, triggerBiteAnimation]);
+  }, [updatePostOptimistic, triggerBiteFeedback]);
 
   const handlePostOptionsPress = (post) => {
     setSelectedPost(post);
@@ -670,18 +660,25 @@ export default function ProfilePostsView() {
               </View>
             )}
             
-            {/* Bite Animation */}
-            {biteAnimations[item.id] && (
-              <Animated.Image
-                source={biteAnimationImage}
-                style={[
-                  styles.biteAnimation,
-                  {
-                    opacity: biteAnimations[item.id],
-                  },
-                ]}
-              />
-            )}
+            {(() => {
+              if (!biteFeedbackAnimRefs.current[item.id]) {
+                biteFeedbackAnimRefs.current[item.id] = new Animated.Value(0);
+              }
+              const overlayAnim = biteFeedbackAnimRefs.current[item.id];
+              return (
+                <Animated.Image
+                  source={biteOverlayImage}
+                  style={[
+                    styles.biteAnimation,
+                    {
+                      opacity: overlayAnim,
+                      transform: [{ scale: 1 }]
+                    },
+                  ]}
+                  resizeMode="contain"
+                />
+              );
+            })()}
           </View>
         </TapGestureHandler>
 
@@ -1406,6 +1403,7 @@ const getStyles = (theme) => StyleSheet.create({
     right: 0,
     width: 450,
     height: 450,
-    opacity: 0.5,
+    opacity: 1,
+    zIndex: 900,
   },
 }); 

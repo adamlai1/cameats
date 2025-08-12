@@ -106,4 +106,36 @@ export const getFriendsList = async (userId) => {
       id: doc.id,
       ...doc.data()
     }));
+};
+
+export const cleanupDuplicateFriends = async (userId = null) => {
+  const targetUserId = userId || auth.currentUser.uid;
+  const userRef = doc(db, 'users', targetUserId);
+  
+  try {
+    const userDoc = await getDoc(userRef);
+    if (!userDoc.exists()) {
+      throw new Error('User not found');
+    }
+    
+    const userData = userDoc.data();
+    const friends = userData.friends || [];
+    
+    // Remove duplicates using Set
+    const uniqueFriends = [...new Set(friends)];
+    
+    // Only update if there were duplicates
+    if (friends.length !== uniqueFriends.length) {
+      console.log(`Removing ${friends.length - uniqueFriends.length} duplicate friends for user ${targetUserId}`);
+      await updateDoc(userRef, {
+        friends: uniqueFriends
+      });
+      return true;
+    }
+    
+    return false;
+  } catch (error) {
+    console.error('Error cleaning up duplicate friends:', error);
+    throw error;
+  }
 }; 

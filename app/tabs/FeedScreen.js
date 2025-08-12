@@ -33,7 +33,7 @@ const WINDOW_WIDTH = Dimensions.get('window').width;
 // Import bread slice images and preload them
 const breadNormal = require('../../assets/images/bread-normal.png');
 const breadBitten = require('../../assets/images/bread-bitten.png');
-const biteAnimationImage = require('../../assets/images/bite-animation.png');
+const biteOverlayImage = require('../../assets/images/bite-animation.png');
 
 // Images are now preloaded in _layout.js to avoid redundant prefetching
 
@@ -311,14 +311,15 @@ const getStyles = (theme) => StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-  globalBiteAnimation: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    width: 450,
-    height: 450,
-    zIndex: 1000, // Ensure it renders above everything
-  },
+    biteFeedback: {
+      position: 'absolute',
+      top: 0,
+      right: 0,
+      width: 450,
+      height: 450,
+      zIndex: 900,
+    },
+  // Removed global bite animation styling
 });
 
 // Memoized BreadButton component with instant visual feedback
@@ -360,6 +361,7 @@ const FeedScreen = forwardRef((props, ref) => {
   const { theme } = useTheme();
   const { triggerCatEating, getCatPosition } = useCat();
   const styles = useMemo(() => getStyles(theme), [theme]);
+  
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -368,22 +370,19 @@ const FeedScreen = forwardRef((props, ref) => {
   const [lastVisible, setLastVisible] = useState(null);
   const [viewMode, setViewMode] = useState('detail'); // 'detail' or 'grid'
   const [currentImageIndices, setCurrentImageIndices] = useState({}); // Track current image index for each post
-  const [biteAnimations, setBiteAnimations] = useState({});
   const [selectedPost, setSelectedPost] = useState(null);
   const [showPostOptions, setShowPostOptions] = useState(false);
   const router = useRouter();
   const flatListRef = useRef(null);
   const [scale, setScale] = useState(1);
   const pinchRef = useRef();
-  const biteMarkRefs = useRef({});
-  const postImageRefs = useRef({}); // Add refs for post images
+  const biteFeedbackAnimRefs = useRef({});
   
   // Readiness tracking - only render posts when everything is ready
   const [systemsReady, setSystemsReady] = useState({
     breadImages: false,
     catFunctions: false,
-    postsLoaded: false,
-    biteAnimationImage: false
+    postsLoaded: false
   });
   
   const allSystemsReady = Object.values(systemsReady).every(ready => ready);
@@ -401,8 +400,15 @@ const FeedScreen = forwardRef((props, ref) => {
     try {
       const newPosts = await postService.fetchPosts(null, lastPost, POSTS_PER_PAGE);
       
+      // Validate and normalize post data (Instagram-style data cleaning)
+      const normalizedPosts = newPosts.map(post => ({
+        ...post,
+        bites: Math.max(0, post.bites || 0), // Ensure bite count is never negative
+        bitedBy: Array.isArray(post.bitedBy) ? post.bitedBy : [] // Ensure bitedBy is always an array
+      }));
+      
       // Immediate preloading - no delays
-      const priorityPosts = newPosts.slice(0, 3); // Load first 3 immediately
+      const priorityPosts = normalizedPosts.slice(0, 3); // Load first 3 immediately
       priorityPosts.forEach(post => {
         if (post.imageUrls?.[0]) {
           Image.prefetch(post.imageUrls[0]).catch(() => {});
@@ -413,7 +419,7 @@ const FeedScreen = forwardRef((props, ref) => {
 
       // Background preload remaining after shorter delay
       setTimeout(() => {
-        const remainingPosts = newPosts.slice(3);
+        const remainingPosts = normalizedPosts.slice(3);
         remainingPosts.forEach(post => {
           // Pre-fetch post images in background
           if (post.imageUrls) {
@@ -434,12 +440,12 @@ const FeedScreen = forwardRef((props, ref) => {
       }, 200); // Much shorter delay
 
       // Update pagination state
-      setHasMorePosts(newPosts.length === POSTS_PER_PAGE);
-      if (newPosts.length > 0) {
-        setLastVisible(newPosts[newPosts.length - 1]);
+      setHasMorePosts(normalizedPosts.length === POSTS_PER_PAGE);
+      if (normalizedPosts.length > 0) {
+        setLastVisible(normalizedPosts[normalizedPosts.length - 1]);
       }
 
-      return newPosts;
+      return normalizedPosts;
     } catch (error) {
       console.error('Error fetching posts:', error);
       return [];
@@ -456,16 +462,14 @@ const FeedScreen = forwardRef((props, ref) => {
         // Actually preload the images into memory
         await Promise.all([
           Image.prefetch(breadNormalSource.uri),
-          Image.prefetch(breadBittenSource.uri),
-          Image.prefetch(Image.resolveAssetSource(biteAnimationImage).uri)
+          Image.prefetch(breadBittenSource.uri)
         ]);
         
         // Longer delay to ensure images are truly in memory and ready
         setTimeout(() => {
           setSystemsReady(prev => ({ 
             ...prev, 
-            breadImages: true,
-            biteAnimationImage: true 
+            breadImages: true
           }));
         }, 300); // Increased delay for true readiness
       } catch (error) {
@@ -473,8 +477,7 @@ const FeedScreen = forwardRef((props, ref) => {
         // Still mark as ready to not block the UI
         setSystemsReady(prev => ({ 
           ...prev, 
-          breadImages: true,
-          biteAnimationImage: true 
+          breadImages: true
         }));
       }
     };
@@ -545,7 +548,11 @@ const FeedScreen = forwardRef((props, ref) => {
       await preloadPostImages(initialPosts);
       
       // Only set posts after images are preloaded
-      setPosts(initialPosts);
+      // Deduplicate posts by ID to prevent duplicate keys
+      const deduplicatedPosts = initialPosts.filter((post, index, self) => 
+        self.findIndex(p => p.id === post.id) === index
+      );
+      setPosts(deduplicatedPosts);
       
       // Mark systems as ready
       setTimeout(() => {
@@ -571,7 +578,14 @@ const FeedScreen = forwardRef((props, ref) => {
 
     setLoadingMore(true);
     const morePosts = await fetchPosts(posts[posts.length - 1]);
-    setPosts(prev => [...prev, ...morePosts]);
+    
+    // Deduplicate posts by ID to prevent duplicate keys
+    setPosts(prev => {
+      const existingIds = new Set(prev.map(post => post.id));
+      const newPosts = morePosts.filter(post => !existingIds.has(post.id));
+      return [...prev, ...newPosts];
+    });
+    
     setLoadingMore(false);
   };
 
@@ -580,7 +594,13 @@ const FeedScreen = forwardRef((props, ref) => {
     
     setRefreshing(true);
     const refreshedPosts = await fetchPosts();
-    setPosts(refreshedPosts);
+    
+    // Deduplicate posts by ID to prevent duplicate keys
+    const deduplicatedPosts = refreshedPosts.filter((post, index, self) => 
+      self.findIndex(p => p.id === post.id) === index
+    );
+    setPosts(deduplicatedPosts);
+    
     setRefreshing(false);
   };
 
@@ -600,77 +620,180 @@ const FeedScreen = forwardRef((props, ref) => {
     });
   }, []);
 
-  // Main feed bite handler with cat animation - with optimistic updates
+  // Subtle bite feedback overlay animation
+  const triggerBiteFeedback = useCallback((postId) => {
+    if (!biteFeedbackAnimRefs.current[postId]) {
+      biteFeedbackAnimRefs.current[postId] = new Animated.Value(0);
+    }
+    const anim = biteFeedbackAnimRefs.current[postId];
+    anim.stopAnimation();
+    Animated.sequence([
+      Animated.timing(anim, { toValue: 1, duration: 0, useNativeDriver: true }),
+      Animated.delay(900),
+      Animated.timing(anim, { toValue: 0, duration: 180, useNativeDriver: true })
+    ]).start();
+  }, []);
+
+  // Robust bite handler with Instagram-style validation
   const handleBitePress = useCallback(async (postId) => {
-    if (!allSystemsReady) return; // Safety check
+    // Early validation
+    if (!allSystemsReady) return;
     
-    // Check if user has already bitten this post
     const post = posts.find(p => p.id === postId);
-    const currentlyBited = post?.bitedBy?.includes(auth.currentUser.uid) || false;
+    if (!post) return;
     
-    // IMMEDIATE optimistic update for instant UI response
-    updatePostOptimistic(postId, (post) => ({
-      ...post,
-      bites: !currentlyBited ? (post.bites || 0) + 1 : Math.max(0, (post.bites || 0) - 1),
-      bitedBy: !currentlyBited 
-        ? [...(post.bitedBy || []), auth.currentUser.uid]
-        : (post.bitedBy || []).filter(id => id !== auth.currentUser.uid)
-    }));
+    const userId = auth.currentUser.uid;
+    const currentBitedBy = post.bitedBy || [];
+    const currentlyBited = currentBitedBy.includes(userId);
+    const currentBites = Math.max(0, post.bites || 0); // Ensure never negative
     
-    // Only trigger cat animations when ADDING a bite - non-blocking
-    if (!currentlyBited) {
-      // Trigger immediately without waiting
-      triggerCatEating();
-      // Trigger bite animation without awaiting
-      triggerBiteAnimation(postId).catch(() => {}); // Catch any errors silently
-    }
+    // Determine the intended action explicitly
+    const action = currentlyBited ? 'remove' : 'add';
     
-    // Background server update - don't block UI
-    try {
-      const hasUserBited = await postService.toggleBite(postId);
+    // IMMEDIATE optimistic update with defensive programming
+    updatePostOptimistic(postId, (post) => {
+      const safeBites = Math.max(0, post.bites || 0);
+      const safeBitedBy = post.bitedBy || [];
+      const userIsInList = safeBitedBy.includes(userId);
       
-      // Update with server response (in case of discrepancy)
-      updatePostOptimistic(postId, (post) => ({
-        ...post,
-        bites: hasUserBited ? (post.bites || 0) : Math.max(0, (post.bites || 1) - 1),
-        bitedBy: hasUserBited 
-          ? [...(post.bitedBy || []).filter(id => id !== auth.currentUser.uid), auth.currentUser.uid]
-          : (post.bitedBy || []).filter(id => id !== auth.currentUser.uid)
-      }));
-    } catch (error) {
-      console.error('Error toggling bite, reverting:', error);
-      // Revert optimistic update on error
-      updatePostOptimistic(postId, (post) => ({
-        ...post,
-        bites: currentlyBited ? (post.bites || 0) + 1 : Math.max(0, (post.bites || 0) - 1),
-        bitedBy: currentlyBited 
-          ? [...(post.bitedBy || []), auth.currentUser.uid]
-          : (post.bitedBy || []).filter(id => id !== auth.currentUser.uid)
-      }));
+      if (action === 'add' && !userIsInList) {
+        return {
+          ...post,
+          bites: safeBites + 1,
+          bitedBy: [...safeBitedBy, userId]
+        };
+      } else if (action === 'remove' && userIsInList) {
+        return {
+          ...post,
+          bites: Math.max(0, safeBites - 1), // Never allow negative
+          bitedBy: safeBitedBy.filter(id => id !== userId)
+        };
+      }
+      
+      // No change needed
+      return post;
+    });
+    
+    // Only animate when ADDING a bite
+    if (action === 'add') {
+      triggerCatEating();
+      triggerBiteFeedback(postId);
     }
-  }, [posts, updatePostOptimistic, triggerCatEating, triggerBiteAnimation, allSystemsReady]);
+    
+         // Background server sync with better error handling
+     try {
+       console.log(`Attempting to ${action} bite for post ${postId}`);
+       const serverResponse = await postService.toggleBite(postId);
+       console.log('Bite saved successfully to Firestore:', serverResponse);
+       
+       // If server returns updated data, use it to correct any inconsistencies
+       if (serverResponse && typeof serverResponse.bites === 'number') {
+         updatePostOptimistic(postId, (post) => ({
+           ...post,
+           bites: Math.max(0, serverResponse.bites), // Server-corrected count
+           bitedBy: serverResponse.bitedBy || post.bitedBy
+         }));
+       }
+     } catch (error) {
+       console.error('❌ BITE SAVE FAILED:', error);
+       console.error('Error details:', {
+         code: error.code,
+         message: error.message,
+         postId,
+         action,
+         userId
+       });
+       // Revert only the specific action we attempted
+      updatePostOptimistic(postId, (post) => {
+        const safeBites = Math.max(0, post.bites || 0);
+        const safeBitedBy = post.bitedBy || [];
+        const userIsInList = safeBitedBy.includes(userId);
+        
+        if (action === 'add' && userIsInList) {
+          // Revert add action
+          return {
+            ...post,
+            bites: Math.max(0, safeBites - 1),
+            bitedBy: safeBitedBy.filter(id => id !== userId)
+          };
+        } else if (action === 'remove' && !userIsInList) {
+          // Revert remove action
+          return {
+            ...post,
+            bites: safeBites + 1,
+            bitedBy: [...safeBitedBy, userId]
+          };
+        }
+        
+        // No revert needed
+        return post;
+      });
+    }
+  }, [posts, updatePostOptimistic, triggerCatEating, allSystemsReady]);
 
   const handleDoubleTapLike = useCallback(async (postId) => {
     const post = posts.find(p => p.id === postId);
-    if (!post || post.bitedBy?.includes(auth.currentUser.uid)) return;
-
-    // Trigger bite animation
-    triggerBiteAnimation(postId);
+    const userId = auth.currentUser.uid;
     
-    // Trigger cat eating
-    triggerCatEating();
+    if (!post || (post.bitedBy || []).includes(userId)) return;
 
-    try {
-      await postService.toggleBite(postId);
-      updatePostOptimistic(postId, (post) => ({
-        ...post,
-        bites: (post.bites || 0) + 1,
-        bitedBy: [...(post.bitedBy || []), auth.currentUser.uid]
-      }));
-    } catch (error) {
-      console.error('Error handling double tap like:', error);
+    // Trigger cat eating & subtle overlay
+    triggerCatEating();
+    triggerBiteFeedback(postId);
+
+    // Optimistic update with validation
+    updatePostOptimistic(postId, (post) => {
+      const safeBites = Math.max(0, post.bites || 0);
+      const safeBitedBy = post.bitedBy || [];
+      
+      // Only add if user is not already in the list
+      if (!safeBitedBy.includes(userId)) {
+        return {
+          ...post,
+          bites: safeBites + 1,
+          bitedBy: [...safeBitedBy, userId]
+        };
+      }
+      return post;
+    });
+
+         try {
+       console.log(`Attempting to add bite via double-tap for post ${postId}`);
+       const serverResponse = await postService.toggleBite(postId);
+       console.log('Double-tap bite saved successfully to Firestore:', serverResponse);
+       
+       // If server returns data, use it to correct any inconsistencies
+       if (serverResponse && typeof serverResponse.bites === 'number') {
+         updatePostOptimistic(postId, (post) => ({
+           ...post,
+           bites: Math.max(0, serverResponse.bites),
+           bitedBy: serverResponse.bitedBy || post.bitedBy
+         }));
+       }
+     } catch (error) {
+       console.error('❌ DOUBLE-TAP BITE SAVE FAILED:', error);
+       console.error('Double-tap error details:', {
+         code: error.code,
+         message: error.message,
+         postId,
+         userId
+       });
+       // Revert the optimistic update
+      updatePostOptimistic(postId, (post) => {
+        const safeBites = Math.max(0, post.bites || 0);
+        const safeBitedBy = post.bitedBy || [];
+        
+        if (safeBitedBy.includes(userId)) {
+          return {
+            ...post,
+            bites: Math.max(0, safeBites - 1),
+            bitedBy: safeBitedBy.filter(id => id !== userId)
+          };
+        }
+        return post;
+      });
     }
-  }, [posts, updatePostOptimistic, triggerBiteAnimation, triggerCatEating]);
+  }, [posts, updatePostOptimistic, triggerCatEating]);
 
   const handleImageScroll = useCallback((event, postId) => {
     const contentOffset = event.nativeEvent.contentOffset.x;
@@ -681,119 +804,7 @@ const FeedScreen = forwardRef((props, ref) => {
     }));
   }, []);
 
-  const triggerBiteAnimation = useCallback(async (postId) => {
-    // Early return if animation system isn't ready
-    if (!getCatPosition || !postImageRefs.current) return;
-
-    // First, find the post to get its image position
-    const post = posts.find(p => p.id === postId);
-    if (!post) return;
-
-    // Get the current image index for this post (or default to 0)
-    const currentImageIndex = currentImageIndices[postId] || 0;
-    const imageRef = postImageRefs.current[`${postId}-${currentImageIndex}`];
-    
-    if (!imageRef) {
-      console.warn('Post image ref not found for post:', postId);
-      return;
-    }
-
-    // Don't create bite animation until we have accurate positions
-    const biteMarkSize = 450;
-
-    // Calculate actual positions first - no estimated positioning
-    try {
-      const [imagePosition, catPosition] = await Promise.race([
-        Promise.all([
-          new Promise(resolve => {
-            imageRef.measureInWindow((x, y, width, height) => {
-              resolve({ x, y, width, height });
-            });
-          }),
-          getCatPosition()
-        ]),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 500))
-      ]);
-
-      // Calculate positions from actual measurements
-      const actualStartX = Math.min(
-        imagePosition.x + imagePosition.width - 50,
-        WINDOW_WIDTH - biteMarkSize
-      );
-      const actualStartY = imagePosition.y;
-
-      // Only NOW create the animation object with accurate positions
-      const animationObject = {
-        opacity: new Animated.Value(0.8), // Start visible since we have accurate position
-        translateX: new Animated.Value(0),
-        translateY: new Animated.Value(0),
-        scale: new Animated.Value(1),
-        startX: actualStartX,
-        startY: actualStartY,
-      };
-      
-      // Add to animations with accurate positions
-      setBiteAnimations(prev => ({
-        ...prev,
-        [postId]: animationObject
-      }));
-
-      // Calculate trajectory from actual starting position to cat
-      const targetX = catPosition.x - (actualStartX + biteMarkSize / 2);
-      const targetY = (catPosition.y + 5) - (actualStartY + biteMarkSize / 2);
-
-      // Start the movement animation after the linger period
-      setTimeout(() => {
-        Animated.parallel([
-          Animated.timing(animationObject.opacity, {
-            toValue: 0.3,
-            duration: 500,
-            useNativeDriver: true,
-          }),
-          Animated.timing(animationObject.translateX, {
-            toValue: targetX,
-            duration: 500,
-            useNativeDriver: true,
-          }),
-          Animated.timing(animationObject.translateY, {
-            toValue: targetY,
-            duration: 500,
-            useNativeDriver: true,
-          }),
-          Animated.timing(animationObject.scale, {
-            toValue: 0.02,
-            duration: 500,
-            useNativeDriver: true,
-          }),
-        ]).start(() => {
-          // Final fade out
-          Animated.timing(animationObject.opacity, {
-            toValue: 0,
-            duration: 200,
-            useNativeDriver: true,
-          }).start(() => {
-            // Clean up animation after completion
-            setBiteAnimations(prev => {
-              const newAnimations = { ...prev };
-              delete newAnimations[postId];
-              return newAnimations;
-            });
-          });
-        });
-      }, 500); // Linger for 0.5 seconds
-
-    } catch (error) {
-      // If position calculation fails, don't show the bite mark at all
-      console.warn('Position calculation failed, skipping bite animation:', error);
-      
-      // Clean up the animation object since we won't use it
-      setBiteAnimations(prev => {
-        const newAnimations = { ...prev };
-        delete newAnimations[postId];
-        return newAnimations;
-      });
-    }
-  }, [getCatPosition, posts, currentImageIndices]);
+  // Removed bite mark flying animation logic
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -838,6 +849,11 @@ const FeedScreen = forwardRef((props, ref) => {
       // Handle the like logic
       handleDoubleTapLike(item.id);
     };
+    // Ensure a persistent animation value exists for this post
+    if (!biteFeedbackAnimRefs.current[item.id]) {
+      biteFeedbackAnimRefs.current[item.id] = new Animated.Value(0);
+    }
+    const overlayAnim = biteFeedbackAnimRefs.current[item.id];
 
     return (
       <View style={styles.postContainer}>
@@ -893,13 +909,8 @@ const FeedScreen = forwardRef((props, ref) => {
               pagingEnabled
               showsHorizontalScrollIndicator={false}
               keyExtractor={(url, index) => `${item.id}-image-${index}-${url}`}
-              renderItem={({ item: imageUrl, index }) => (
+              renderItem={({ item: imageUrl }) => (
                 <Image 
-                  ref={(ref) => {
-                    if (ref) {
-                      postImageRefs.current[`${item.id}-${index}`] = ref;
-                    }
-                  }}
                   source={{ uri: imageUrl }} 
                   style={styles.postImage}
                   resizeMode="cover"
@@ -921,7 +932,17 @@ const FeedScreen = forwardRef((props, ref) => {
                 ))}
               </View>
             )}
-            
+            <Animated.Image
+              source={biteOverlayImage}
+              style={[
+                styles.biteFeedback,
+                {
+                  opacity: overlayAnim,
+                  transform: [{ scale: 1 }]
+                }
+              ]}
+              resizeMode="contain"
+            />
 
           </View>
         </TapGestureHandler>
@@ -946,7 +967,7 @@ const FeedScreen = forwardRef((props, ref) => {
         {/* Bite count */}
         <View style={styles.biteCountContainer}>
           <Text style={styles.biteCountText}>
-            {item.bites || 0} {item.bites === 1 ? 'bite' : 'bites'}
+            {Math.max(0, item.bites || 0)} {Math.max(0, item.bites || 0) === 1 ? 'bite' : 'bites'}
           </Text>
         </View>
 
@@ -992,14 +1013,14 @@ const FeedScreen = forwardRef((props, ref) => {
             <Ionicons name="images" size={12} color="white" />
           </View>
         )}
-        {/* Bite indicator for grid view */}
-        <View style={styles.gridBiteCounter}>
-          <Image 
-            source={hasUserBited ? breadBitten : breadNormal}
-            style={styles.gridBreadEmoji}
-          />
-          <Text style={styles.gridBiteCount}>{item.bites}</Text>
-        </View>
+                 {/* Bite indicator for grid view */}
+         <View style={styles.gridBiteCounter}>
+           <Image 
+             source={hasUserBited ? breadBitten : breadNormal}
+             style={styles.gridBreadEmoji}
+           />
+           <Text style={styles.gridBiteCount}>{Math.max(0, item.bites || 0)}</Text>
+         </View>
       </TouchableOpacity>
     );
   };
@@ -1066,7 +1087,6 @@ const FeedScreen = forwardRef((props, ref) => {
               Bread: {systemsReady.breadImages ? '✓' : '⏳'} | 
               Cat: {systemsReady.catFunctions ? '✓' : '⏳'} | 
               Posts: {systemsReady.postsLoaded ? '✓' : '⏳'} | 
-              Bite: {systemsReady.biteAnimationImage ? '✓' : '⏳'} |
               HasPosts: {posts.length > 0 ? '✓' : '⏳'} |
               Images: Preloaded
             </Text>
@@ -1143,41 +1163,7 @@ const FeedScreen = forwardRef((props, ref) => {
           </View>
         </PinchGestureHandler>
       )}
-      
-      {/* Global Bite Mark Animations - render over everything */}
-      {Object.entries(biteAnimations).map(([postId, animation]) => (
-        <Animated.View
-          key={`bite-${postId}`}
-          style={[
-            styles.globalBiteAnimation,
-            {
-              opacity: animation.opacity,
-              left: animation.startX,
-              top: animation.startY,
-              transform: [
-                { translateX: animation.translateX },
-                { translateY: animation.translateY },
-                { scale: animation.scale },
-              ],
-            },
-          ]}
-          pointerEvents="none"
-        >
-          <Animated.Image
-            ref={(ref) => {
-              if (ref) {
-                biteMarkRefs.current[postId] = ref;
-              }
-            }}
-            source={biteAnimationImage}
-            style={{
-              width: '100%',
-              height: '100%',
-            }}
-            resizeMode="contain"
-          />
-        </Animated.View>
-      ))}
+
     </SafeAreaView>
   );
 });

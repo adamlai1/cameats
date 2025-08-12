@@ -12,7 +12,7 @@ export default function Home() {
   useEffect(() => {
     // If user is authenticated, redirect immediately
     if (!loading && user) {
-      router.replace('/tabs/FeedScreen');
+      router.replace('/tabs');
     }
   }, [user, loading, router]);
 

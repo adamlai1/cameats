@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { manipulateAsync } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { usePathname, useRouter } from 'expo-router';
-import { arrayUnion, collection, deleteDoc, doc, getDoc, getDocs, increment, limit, query, updateDoc, where } from 'firebase/firestore';
+import { arrayRemove, arrayUnion, collection, deleteDoc, doc, getDoc, getDocs, increment, limit, query, updateDoc, where } from 'firebase/firestore';
 import { deleteObject } from 'firebase/storage';
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import {
@@ -29,6 +29,7 @@ import { auth, db, storage } from '../../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import * as postService from '../services/postService';
+import { cleanupDuplicateFriends } from '../services/userService';
 import { uploadProfilePicture } from '../utils/profilePicture';
 
 // Import bread slice images and preload them
@@ -302,6 +303,15 @@ const ProfileScreen = forwardRef((props, ref) => {
   const fetchProfile = async () => {
     try {
       setLoading(true);
+      
+      // Clean up any duplicate friends first
+      try {
+        await cleanupDuplicateFriends();
+      } catch (cleanupError) {
+        console.error('Error cleaning up duplicate friends:', cleanupError);
+        // Continue with profile fetch even if cleanup fails
+      }
+      
       const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
       if (!userDoc.exists()) {
         console.error('User profile not found');
@@ -350,7 +360,12 @@ const ProfileScreen = forwardRef((props, ref) => {
         try {
           // Use optimized post service instead of fetching all posts
           const userPosts = await postService.fetchPosts([auth.currentUser.uid], null, 100);
-          setPosts(userPosts);
+          
+          // Deduplicate posts by ID to prevent duplicate keys
+          const deduplicatedPosts = userPosts.filter((post, index, self) => 
+            self.findIndex(p => p.id === post.id) === index
+          );
+          setPosts(deduplicatedPosts);
         } catch (error) {
           console.error('Error fetching user posts:', error);
           // Fallback to old method if optimized fetch fails
@@ -403,7 +418,11 @@ const ProfileScreen = forwardRef((props, ref) => {
         return bTime - aTime; // Descending order
       });
 
-      setPosts(userPosts);
+      // Deduplicate posts by ID to prevent duplicate keys
+      const deduplicatedPosts = userPosts.filter((post, index, self) => 
+        self.findIndex(p => p.id === post.id) === index
+      );
+      setPosts(deduplicatedPosts);
     } catch (error) {
       console.error('Error in legacy post fetch:', error);
     }
@@ -490,23 +509,23 @@ const ProfileScreen = forwardRef((props, ref) => {
 
   const handleAcceptFriendRequest = async (fromUid) => {
     try {
-      // Update current user's friends list and remove the request
+      // Use atomic operations to prevent duplicates
       const currentUserRef = doc(db, 'users', auth.currentUser.uid);
-      const currentUserDoc = await getDoc(currentUserRef);
-      const currentUserData = currentUserDoc.data();
+      const otherUserRef = doc(db, 'users', fromUid);
 
+      // Update current user's friends list and remove the request atomically
       await updateDoc(currentUserRef, {
-        friends: [...(currentUserData.friends || []), fromUid],
-        friendRequests: currentUserData.friendRequests.filter(id => id !== fromUid)
+        friends: arrayUnion(fromUid),
+        friendRequests: arrayRemove({
+          id: fromUid,
+          username: friendRequests.find(req => req.id === fromUid)?.username || ''
+        })
       });
 
-      // Update the other user's friends list
-      const otherUserRef = doc(db, 'users', fromUid);
-      const otherUserDoc = await getDoc(otherUserRef);
-      const otherUserData = otherUserDoc.data();
-
+      // Update the other user's friends list atomically
       await updateDoc(otherUserRef, {
-        friends: [...(otherUserData.friends || []), auth.currentUser.uid]
+        friends: arrayUnion(auth.currentUser.uid),
+        sentFriendRequests: arrayRemove(auth.currentUser.uid)
       });
 
       Alert.alert('Friend request accepted!');

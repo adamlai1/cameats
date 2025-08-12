@@ -70,7 +70,12 @@ export default function FriendProfile() {
         return isOwner || isCreator;
       });
 
-      setPosts(userPosts);
+      // Deduplicate posts by ID to prevent duplicate keys
+      const deduplicatedPosts = userPosts.filter((post, index, self) => 
+        self.findIndex(p => p.id === post.id) === index
+      );
+
+      setPosts(deduplicatedPosts);
     } catch (error) {
       console.error('Error fetching friend profile:', error);
     } finally {

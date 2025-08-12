@@ -1,0 +1,39 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Users collection rules
+    match /users/{userId} {
+      // Users can read their own profile and other users' profiles
+      allow read: if true;
+      // Users can only write to their own profile
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Posts collection rules
+    match /posts/{postId} {
+      // Anyone can read posts
+      allow read: if true;
+      // Only authenticated users can create posts
+      allow create: if request.auth != null;
+      // Users can delete their own posts or posts they are owners of
+      allow delete: if request.auth != null && 
+        (request.auth.uid == resource.data.userId || 
+         request.auth.uid in resource.data.postOwners);
+      // Users can update their own posts or posts they are owners of (for caption, etc.)
+      allow update: if request.auth != null && 
+        (request.auth.uid == resource.data.userId || 
+         request.auth.uid in resource.data.postOwners);
+      // Any authenticated user can update bites and bitedBy fields (for liking posts)
+      allow update: if request.auth != null && 
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['bites', 'bitedBy']);
+    }
+    
+    // Allow reading and writing to other collections as needed
+    match /{document=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+  }
+} 

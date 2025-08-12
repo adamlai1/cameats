@@ -50,7 +50,7 @@ export default function SignupScreen() {
       });
 
       Alert.alert('Signup successful!');
-      router.replace('/tabs/FeedScreen');
+      router.replace('/tabs');
     } catch (error) {
       console.error('Signup error:', error);
       Alert.alert('Error', error.message);

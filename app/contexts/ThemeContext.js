@@ -40,37 +40,37 @@ export const themes = {
   },
   dark: {
     // Background colors
-    background: '#1a1a1a',
-    surface: '#2d2d2d',
-    surfaceSecondary: '#3a3a3a',
-    modal: '#2d2d2d',
+    background: '#0b0b0c',
+    surface: '#121214',
+    surfaceSecondary: '#18181b',
+    modal: '#121214',
     
     // Text colors
-    text: '#fff',
-    textSecondary: '#8e8e93',
-    textTertiary: '#636366',
+    text: '#eaeaec',
+    textSecondary: '#9a9aa1',
+    textTertiary: '#6e6e75',
     
     // UI colors
-    border: '#38383a',
-    borderLight: '#2c2c2e',
-    inputBackground: '#3a3a3a',
-    placeholder: '#8e8e93',
+    border: '#26262a',
+    borderLight: '#1e1e22',
+    inputBackground: '#18181b',
+    placeholder: '#7c7c82',
     
     // Action colors
-    primary: '#007AFF',
-    accent: '#64b5f6',
+    primary: '#3ea6ff',
+    accent: '#7db9ff',
     success: '#34C759',
     danger: '#ff453a',
     warning: '#ff9f0a',
     
     // Special colors
-    overlay: 'rgba(0, 0, 0, 0.8)',
+    overlay: 'rgba(0, 0, 0, 0.85)',
     shadow: '#000',
     
     // Tab bar
-    tabBarBackground: '#2d2d2d',
-    tabBarInactive: '#8e8e93',
-    tabBarActive: '#007AFF'
+    tabBarBackground: '#121214',
+    tabBarInactive: '#9a9aa1',
+    tabBarActive: '#7db9ff'
   }
 };
 

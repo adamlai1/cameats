@@ -46,10 +46,10 @@ const Cat = memo(() => {
       
       dispatch({ type: 'START_EATING' });
       
-      // Close mouth after 1.1 seconds (reduced by 0.6 seconds)
+      // Close mouth after 0.9 seconds
       timeoutRef.current = setTimeout(() => {
         dispatch({ type: 'STOP_EATING' });
-      }, 1100);
+      }, 900);
     };
     
     registerCatEating(eatFunction);

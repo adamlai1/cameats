@@ -4,9 +4,9 @@ import { Stack } from 'expo-router';
 import { useEffect } from 'react';
 import { Image, LogBox } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { AuthProvider } from '../app/contexts/AuthContext';
-import { CatProvider } from '../app/contexts/CatContext';
-import { ThemeProvider } from '../app/contexts/ThemeContext';
+import { AuthProvider } from './contexts/AuthContext';
+import { CatProvider } from './contexts/CatContext';
+import { ThemeProvider } from './contexts/ThemeContext';
 
 // Import bread images
 const breadNormal = require('../assets/images/bread-normal.png');
@@ -71,7 +71,7 @@ function RootLayoutNav() {
           }}
         />
         <Stack.Screen 
-          name="tabs"
+          name="tabs/index"
           options={{
             headerShown: false,
           }}

@@ -1,6 +1,5 @@
 import {
     addDoc,
-    arrayRemove,
     arrayUnion,
     collection,
     deleteDoc,
@@ -11,6 +10,7 @@ import {
     limit,
     orderBy,
     query,
+    runTransaction,
     serverTimestamp,
     startAfter,
     updateDoc,
@@ -299,26 +299,53 @@ export const getPost = async (postId) => {
   }
 };
 
-// Toggle bite on a post
+// Toggle bite on a post with atomic transaction
 export const toggleBite = async (postId) => {
   try {
     const postRef = doc(db, 'posts', postId);
-    const postDoc = await getDoc(postRef);
-    
-    if (!postDoc.exists()) {
-      throw new Error('Post not found');
-    }
-
-    const data = postDoc.data();
     const userId = auth.currentUser.uid;
-    const hasUserBited = data.bitedBy?.includes(userId);
 
-    await updateDoc(postRef, {
-      bites: hasUserBited ? increment(-1) : increment(1),
-      bitedBy: hasUserBited ? arrayRemove(userId) : arrayUnion(userId)
+    const result = await runTransaction(db, async (transaction) => {
+      const postDoc = await transaction.get(postRef);
+      
+      if (!postDoc.exists()) {
+        throw new Error('Post not found');
+      }
+
+      const data = postDoc.data();
+      const currentBites = Math.max(0, data.bites || 0); // Clean any existing negative values
+      const currentBitedBy = data.bitedBy || [];
+      const hasUserBited = currentBitedBy.includes(userId);
+
+      let newBites, newBitedBy, action;
+
+      if (hasUserBited) {
+        // Remove bite
+        newBites = Math.max(0, currentBites - 1); // Never allow negative
+        newBitedBy = currentBitedBy.filter(id => id !== userId);
+        action = 'removed';
+      } else {
+        // Add bite
+        newBites = currentBites + 1;
+        newBitedBy = [...currentBitedBy, userId];
+        action = 'added';
+      }
+
+      // Update the document with the calculated values
+      transaction.update(postRef, {
+        bites: newBites,
+        bitedBy: newBitedBy
+      });
+
+      return {
+        success: true,
+        action,
+        bites: newBites,
+        bitedBy: newBitedBy
+      };
     });
 
-    return !hasUserBited;
+    return result;
   } catch (error) {
     console.error('Error toggling bite:', error);
     throw error;
@@ -433,6 +460,47 @@ export const createPost = async (postData) => {
     };
   } catch (error) {
     console.error('Error creating post:', error);
+    throw error;
+  }
+};
+
+// Clean up posts with negative bite counts
+export const cleanupNegativeBites = async () => {
+  try {
+    console.log('Starting cleanup of negative bite counts...');
+    const postsQuery = query(collection(db, 'posts'));
+    const snapshot = await getDocs(postsQuery);
+    
+    let fixedCount = 0;
+    const batch = [];
+    
+    for (const docSnapshot of snapshot.docs) {
+      const data = docSnapshot.data();
+      const currentBites = data.bites || 0;
+      
+      if (currentBites < 0) {
+        console.log(`Fixing post ${docSnapshot.id}: ${currentBites} -> 0`);
+        batch.push({
+          ref: doc(db, 'posts', docSnapshot.id),
+          bites: 0,
+          bitedBy: data.bitedBy || []
+        });
+        fixedCount++;
+      }
+    }
+    
+    // Update posts with negative bite counts
+    for (const update of batch) {
+      await updateDoc(update.ref, {
+        bites: update.bites,
+        bitedBy: update.bitedBy
+      });
+    }
+    
+    console.log(`Fixed ${fixedCount} posts with negative bite counts`);
+    return fixedCount;
+  } catch (error) {
+    console.error('Error cleaning up negative bites:', error);
     throw error;
   }
 };

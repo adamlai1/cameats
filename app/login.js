@@ -27,7 +27,7 @@ export default function LoginScreen() {
     try {
       await signInWithEmailAndPassword(auth, email, password);
       Alert.alert('Login successful!');
-      router.replace('/tabs/FeedScreen');
+      router.replace('/tabs');
     } catch (error) {
       console.error('Login error:', error);
       Alert.alert('Error', error.message);

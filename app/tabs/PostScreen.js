@@ -1,9 +1,10 @@
 // app/tabs/PostScreen.js
 
 import { Ionicons } from '@expo/vector-icons';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useState } from 'react';
+import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import {
     Alert,
     Dimensions,
@@ -19,7 +20,7 @@ import DraggableFlatList from 'react-native-draggable-flatlist';
 import { useTheme } from '../contexts/ThemeContext';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
-const IMAGE_SIZE = (SCREEN_WIDTH * 2) / 3; // 1.5 images fit on screen
+const IMAGE_SIZE = SCREEN_WIDTH; // Fill full width for a larger preview
 
 const PostScreen = forwardRef((props, ref) => {
   const router = useRouter();
@@ -27,6 +28,10 @@ const PostScreen = forwardRef((props, ref) => {
   const styles = getStyles(theme);
   const [selectedImages, setSelectedImages] = useState([]);
   const [hasNavigated, setHasNavigated] = useState(false);
+  const [permission, requestPermission] = useCameraPermissions();
+  const [cameraType, setCameraType] = useState('back'); // 'back' | 'front'
+  const [isCameraReady, setIsCameraReady] = useState(false);
+  const cameraRef = useRef(null);
 
   // Expose takePhoto function to parent component
   useImperativeHandle(ref, () => ({
@@ -81,9 +86,16 @@ const PostScreen = forwardRef((props, ref) => {
     };
 
     (async () => {
-      const cameraStatus = await ImagePicker.requestCameraPermissionsAsync();
+      // Request camera permission on mount if not asked yet
+      try {
+        if (!permission) {
+          await requestPermission();
+        }
+      } catch (e) {
+        // ignore
+      }
+      // Media library
       const mediaStatus = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (cameraStatus.status !== 'granted') Alert.alert('Camera permission is required.');
       if (mediaStatus.status !== 'granted') Alert.alert('Media library permission is required.');
     })();
 
@@ -126,14 +138,14 @@ const PostScreen = forwardRef((props, ref) => {
   };
 
   const takePhoto = async () => {
-    let result = await ImagePicker.launchCameraAsync({ 
-      allowsEditing: true,
-      quality: 0.2,
-      aspect: [1, 1]
-    });
-    
-    if (!result.canceled) {
-      setSelectedImages(prev => [...prev, result.assets[0].uri].slice(0, 10));
+    try {
+      if (!cameraRef.current || !isCameraReady) return;
+      const photo = await cameraRef.current.takePictureAsync();
+      if (photo?.uri) {
+        setSelectedImages(prev => [photo.uri, ...prev].slice(0, 10));
+      }
+    } catch (e) {
+      console.warn('Failed to capture photo:', e);
     }
   };
 
@@ -208,8 +220,44 @@ const PostScreen = forwardRef((props, ref) => {
       </View>
               
       <View style={styles.contentContainer}>
-        {selectedImages.length > 0 ? (
-          <View style={styles.selectedImagesContainer}>
+        {permission?.granted ? (
+          <View style={styles.cameraWrapper}>
+            <CameraView
+              ref={cameraRef}
+              facing={cameraType}
+              style={styles.camera}
+              onCameraReady={() => setIsCameraReady(true)}
+            />
+            {/* Overlay controls */}
+            <View style={styles.cameraControls}>
+              <TouchableOpacity onPress={pickImages} style={styles.smallControlButton}>
+                <Ionicons name="images" size={24} color={theme.text} />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={takePhoto} style={styles.shutterButton} />
+              <TouchableOpacity
+                onPress={() => setCameraType(prev => (prev === 'back' ? 'front' : 'back'))}
+                style={styles.smallControlButton}
+              >
+                <Ionicons name="camera-reverse" size={24} color={theme.text} />
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : (
+          <View style={styles.emptyState}>
+            <Ionicons name="camera" size={80} color={theme.textSecondary} />
+            <Text style={styles.emptyText}>Camera permission needed</Text>
+            <TouchableOpacity
+              onPress={async () => { await requestPermission(); }}
+              style={[styles.actionButton, { marginTop: 16 }]}
+            >
+              <Text style={styles.actionButtonText}>Enable Camera</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Selected images strip */}
+        {selectedImages.length > 0 && (
+          <View style={styles.selectedStrip}>
             <DraggableFlatList
               data={selectedImages.map((uri) => ({ uri, key: uri }))}
               renderItem={renderSelectedImage}
@@ -235,30 +283,13 @@ const PostScreen = forwardRef((props, ref) => {
               extraData={selectedImages.length}
             />
           </View>
-        ) : (
-          <View style={styles.emptyState}>
-            <Ionicons name="images-outline" size={80} color={theme.textSecondary} />
-            <Text style={styles.emptyText}>Select photos to create your post</Text>
-          </View>
         )}
       </View>
 
       <View style={styles.bottomActions}>
-        <View style={styles.actionButtonsRow}>
-          <TouchableOpacity style={styles.actionButton} onPress={takePhoto}>
-            <Ionicons name="camera" size={28} color={theme.primary} />
-            <Text style={styles.actionButtonText}>Camera</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.actionButton} onPress={pickImages}>
-            <Ionicons name="images" size={28} color={theme.primary} />
-            <Text style={styles.actionButtonText}>Gallery</Text>
-          </TouchableOpacity>
-        </View>
-
         {selectedImages.length > 0 && (
           <TouchableOpacity
-            style={styles.nextButton} 
+            style={styles.nextButton}
             onPress={handleNext}
           >
             <Text style={styles.nextButtonText}>Continue</Text>
@@ -301,6 +332,51 @@ const getStyles = (theme) => StyleSheet.create({
   selectedImagesContainer: {
     flex: 1,
     justifyContent: 'center'
+  },
+  cameraWrapper: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  camera: {
+    width: IMAGE_SIZE,
+    height: IMAGE_SIZE,
+    borderRadius: 0,
+    overflow: 'hidden'
+  },
+  cameraControls: {
+    position: 'absolute',
+    bottom: 40,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+    paddingHorizontal: 24
+  },
+  shutterButton: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: '#fff',
+    borderWidth: 4,
+    borderColor: 'rgba(255,255,255,0.6)'
+  },
+  smallControlButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: 'rgba(0,0,0,0.25)',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  selectedStrip: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingVertical: 8,
+    backgroundColor: theme.overlay
   },
   emptyState: {
     flex: 1,

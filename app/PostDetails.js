@@ -297,7 +297,7 @@ export default function PostDetails() {
       
       // Navigate back to tabs and clear PostScreen images
       router.replace({
-        pathname: '/tabs/FeedScreen',
+        pathname: '/tabs',
         params: { clearPostImages: 'true' }
       });
     } catch (error) {
