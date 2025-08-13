@@ -6,17 +6,20 @@ import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import {
-    Alert,
-    Dimensions,
-    Image,
-    LogBox,
-    SafeAreaView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View
+  Alert,
+  Animated,
+  Dimensions,
+  Image,
+  LogBox,
+  Pressable,
+  SafeAreaView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import DraggableFlatList from 'react-native-draggable-flatlist';
+import { PinchGestureHandler, State } from 'react-native-gesture-handler';
 import { useTheme } from '../contexts/ThemeContext';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
@@ -32,6 +35,26 @@ const PostScreen = forwardRef((props, ref) => {
   const [cameraType, setCameraType] = useState('back'); // 'back' | 'front'
   const [isCameraReady, setIsCameraReady] = useState(false);
   const cameraRef = useRef(null);
+  const focusPoint = useRef(new Animated.Value(0)).current; // 0 hidden, 1 visible
+  const [focusCoords, setFocusCoords] = useState({ x: IMAGE_SIZE / 2, y: IMAGE_SIZE / 2 });
+  // Display zoom shown to the user in optical-equivalent scale (0.5x .. 50x)
+  const [displayZoom, setDisplayZoom] = useState(1);
+  const pinchStartDisplayZoomRef = useRef(1);
+  // Convert display (0.5x..50x) to CameraView zoom 0..1 using logarithmic mapping
+  const displayToCameraZoom = useCallback((dz) => {
+    const maxDz = cameraType === 'front' ? 1 : 50;
+    const clampedDz = Math.max(0.5, Math.min(maxDz, dz || 1));
+    const denom = Math.log(maxDz / 0.5) || 1; // prevent divide-by-zero
+    return Math.max(0, Math.min(1, Math.log(clampedDz / 0.5) / denom));
+  }, [cameraType]);
+
+  // When switching to front camera, lock zoom to 1.0x and disable any accumulated pinch state
+  useEffect(() => {
+    if (cameraType === 'front') {
+      setDisplayZoom(1);
+      pinchStartDisplayZoomRef.current = 1;
+    }
+  }, [cameraType]);
 
   // Expose takePhoto function to parent component
   useImperativeHandle(ref, () => ({
@@ -112,12 +135,7 @@ const PostScreen = forwardRef((props, ref) => {
       setHasNavigated(false);
       
       return () => {
-        // Screen is losing focus
-        if (selectedImages.length > 0 && !hasNavigated) {
-          // User is trying to leave with unsaved images
-          // Note: We can't prevent navigation here, but we could show a toast
-          console.log('User left post screen with unsaved images');
-        }
+        // Screen is losing focus. Previously logged a debug message here; removed for cleaner logs.
       };
     }, [selectedImages.length, hasNavigated])
   );
@@ -203,42 +221,118 @@ const PostScreen = forwardRef((props, ref) => {
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.header}>
-        <Text style={styles.title}>Create a Post</Text>
-        <View style={styles.headerRight}>
-          {selectedImages.length > 0 && (
-            <>
-              <TouchableOpacity 
-                onPress={() => setSelectedImages([])}
-                style={styles.clearButton}
-              >
-                <Text style={styles.clearButtonText}>Clear</Text>
-              </TouchableOpacity>
-              <Text style={styles.imageCount}>{selectedImages.length}/10</Text>
-            </>
-          )}
-        </View>
+        {selectedImages.length > 0 && (
+          <View style={styles.headerRight}>
+            <Text style={styles.imageCount}>{selectedImages.length}/10</Text>
+          </View>
+        )}
       </View>
               
       <View style={styles.contentContainer}>
         {permission?.granted ? (
           <View style={styles.cameraWrapper}>
-            <CameraView
-              ref={cameraRef}
-              facing={cameraType}
-              style={styles.camera}
-              onCameraReady={() => setIsCameraReady(true)}
-            />
+            <PinchGestureHandler
+              enabled={cameraType !== 'front'}
+              onHandlerStateChange={({ nativeEvent }) => {
+                if (nativeEvent.state === State.BEGAN) {
+                  pinchStartDisplayZoomRef.current = displayZoom;
+                } else if (
+                  nativeEvent.state === State.END ||
+                  nativeEvent.state === State.CANCELLED ||
+                  nativeEvent.state === State.FAILED
+                ) {
+                  pinchStartDisplayZoomRef.current = displayZoom;
+                }
+              }}
+              onGestureEvent={({ nativeEvent }) => {
+                if (cameraType === 'front') return;
+                const scale = nativeEvent.scale || 1;
+                // Multiplicative pinch on display zoom (log scale): clamp 0.5x..50x
+                const maxDz = cameraType === 'front' ? 1 : 50;
+                const newDisplayZoom = Math.max(0.5, Math.min(maxDz, pinchStartDisplayZoomRef.current * Math.pow(scale, 1)));
+                setDisplayZoom(newDisplayZoom);
+              }}
+            >
+              <Pressable
+                onPress={({ nativeEvent }) => {
+                  if (!cameraRef.current) return;
+                  // Get tap within camera view
+                  const { locationX, locationY } = nativeEvent;
+                  setFocusCoords({ x: locationX, y: locationY });
+                  // Normalize to 0..1 for focus API if available
+                  const normX = Math.max(0, Math.min(1, locationX / IMAGE_SIZE));
+                  const normY = Math.max(0, Math.min(1, locationY / IMAGE_SIZE));
+                  try {
+                    if (cameraRef.current.setFocus) {
+                      cameraRef.current.setFocus({ x: normX, y: normY });
+                    }
+                  } catch {}
+                  // Animate focus indicator
+                  focusPoint.setValue(0);
+                  Animated.sequence([
+                    Animated.timing(focusPoint, { toValue: 1, duration: 80, useNativeDriver: true }),
+                    Animated.delay(500),
+                    Animated.timing(focusPoint, { toValue: 0, duration: 180, useNativeDriver: true })
+                  ]).start();
+                }}
+              >
+                <View>
+                  <CameraView
+                    ref={cameraRef}
+                    facing={cameraType}
+                    zoom={cameraType === 'front' ? 0.05 : displayToCameraZoom(displayZoom)}
+                    style={styles.camera}
+                    onCameraReady={() => setIsCameraReady(true)}
+                  />
+                  <Animated.View
+                    pointerEvents="none"
+                    style={[
+                      styles.focusRing,
+                      {
+                        left: focusCoords.x - 30,
+                        top: focusCoords.y - 30,
+                        opacity: focusPoint,
+                        transform: [{ scale: focusPoint.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1] }) }]
+                      }
+                    ]}
+                  />
+                </View>
+              </Pressable>
+            </PinchGestureHandler>
             {/* Overlay controls */}
             <View style={styles.cameraControls}>
-              <TouchableOpacity onPress={pickImages} style={styles.smallControlButton}>
-                <Ionicons name="images" size={24} color={theme.text} />
-              </TouchableOpacity>
-              <TouchableOpacity onPress={takePhoto} style={styles.shutterButton} />
+              <View style={styles.controlsLeft}>
+                <TouchableOpacity onPress={pickImages} style={styles.smallControlButton}>
+                  <Ionicons name="images" size={24} color={'#fff'} />
+                </TouchableOpacity>
+              </View>
+              <View style={styles.controlsCenter}>
+                <TouchableOpacity onPress={takePhoto} style={styles.shutterButton} />
+              </View>
+              <View style={styles.controlsRight}>
+                <TouchableOpacity
+                  onPress={() => setCameraType(prev => (prev === 'back' ? 'front' : 'back'))}
+                  style={styles.smallControlButton}
+                >
+                  <Ionicons name="camera-reverse" size={24} color={'#fff'} />
+                </TouchableOpacity>
+              </View>
+            </View>
+            {/* Bottom-center zoom pill */}
+            <View style={styles.bottomZoomContainer}>
               <TouchableOpacity
-                onPress={() => setCameraType(prev => (prev === 'back' ? 'front' : 'back'))}
-                style={styles.smallControlButton}
+                onPress={() => {
+                  if (cameraType === 'front') {
+                    setDisplayZoom(1);
+                  } else {
+                    const isNearOneX = Math.abs(displayZoom - 1) < 0.05;
+                    setDisplayZoom(isNearOneX ? 0.5 : 1);
+                  }
+                }}
+                activeOpacity={0.7}
+                style={styles.zoomInfoContainer}
               >
-                <Ionicons name="camera-reverse" size={24} color={theme.text} />
+                <Text style={styles.zoomLabel}>{displayZoom.toFixed(1)}x</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -307,23 +401,24 @@ const getStyles = (theme) => StyleSheet.create({
     backgroundColor: theme.background
   },
   header: {
+    position: 'absolute',
+    top: 8,
+    left: 0,
+    right: 0,
+    zIndex: 10,
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-end',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.border
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
   title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: theme.text
+    display: 'none'
   },
   imageCount: {
-    fontSize: 16,
-    color: theme.textSecondary,
-    fontWeight: '500'
+    fontSize: 13,
+    color: '#fff',
+    fontWeight: '600'
   },
   contentContainer: {
     flex: 1,
@@ -344,6 +439,15 @@ const getStyles = (theme) => StyleSheet.create({
     borderRadius: 0,
     overflow: 'hidden'
   },
+  focusRing: {
+    position: 'absolute',
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    borderWidth: 2,
+    borderColor: '#fff',
+    backgroundColor: 'transparent'
+  },
   cameraControls: {
     position: 'absolute',
     bottom: 40,
@@ -351,8 +455,47 @@ const getStyles = (theme) => StyleSheet.create({
     right: 0,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-around',
+    justifyContent: 'space-between',
     paddingHorizontal: 24
+  },
+  controlsLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-start'
+  },
+  controlsCenter: {
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  controlsRight: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 12
+  },
+  zoomInfoContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    backgroundColor: 'rgba(0,0,0,0.25)',
+    borderRadius: 16
+  },
+  zoomLabel: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700'
+  },
+  bottomZoomContainer: {
+    position: 'absolute',
+    bottom: 140,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 5
   },
   shutterButton: {
     width: 72,
@@ -366,17 +509,18 @@ const getStyles = (theme) => StyleSheet.create({
     width: 42,
     height: 42,
     borderRadius: 21,
-    backgroundColor: 'rgba(0,0,0,0.25)',
+    backgroundColor: 'rgba(0,0,0,0.35)',
     alignItems: 'center',
     justifyContent: 'center'
   },
   selectedStrip: {
     position: 'absolute',
-    bottom: 0,
+    top: 8,
     left: 0,
     right: 0,
-    paddingVertical: 8,
-    backgroundColor: theme.overlay
+    paddingVertical: 6,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    zIndex: 8
   },
   emptyState: {
     flex: 1,
@@ -396,8 +540,7 @@ const getStyles = (theme) => StyleSheet.create({
   imageContainer: {
     position: 'relative',
     marginRight: 8,
-    paddingTop: 12,
-    paddingRight: 12
+    padding: 6
   },
   firstImage: {
     marginLeft: 0
@@ -409,16 +552,16 @@ const getStyles = (theme) => StyleSheet.create({
     position: 'relative'
   },
   selectedImage: {
-    width: IMAGE_SIZE,
-    height: IMAGE_SIZE,
-    borderRadius: 12
+    width: 72,
+    height: 72,
+    borderRadius: 8
   },
   removeButton: {
     position: 'absolute',
-    top: -2,
-    right: -2,
-    backgroundColor: theme.surface,
-    borderRadius: 12,
+    top: 0,
+    right: 0,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    borderRadius: 10,
     elevation: 2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
@@ -457,17 +600,20 @@ const getStyles = (theme) => StyleSheet.create({
   },
   nextButton: {
     backgroundColor: theme.primary,
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 20,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8
+    gap: 6,
+    position: 'absolute',
+    bottom: 16,
+    right: 16
   },
   nextButtonText: {
     color: '#fff',
-    fontSize: 18,
+    fontSize: 14,
     fontWeight: '600'
   },
   headerRight: {
